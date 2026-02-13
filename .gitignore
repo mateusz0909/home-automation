@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+.vercel/
+.env
+.env.*
+!.env.example
+*.js.map
+*.d.ts
+!src/**/*.d.ts
+*.log
+.DS_Store
+coverage/

@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 40% 7%;
+    --foreground: 215 32% 92%;
+    --card: 221 37% 11%;
+    --card-foreground: 215 32% 92%;
+    --primary: 221 95% 67%;
+    --primary-foreground: 220 40% 9%;
+    --secondary: 220 30% 16%;
+    --secondary-foreground: 215 32% 92%;
+    --muted: 220 27% 15%;
+    --muted-foreground: 218 20% 67%;
+    --accent: 220 28% 17%;
+    --accent-foreground: 215 32% 92%;
+    --destructive: 352 84% 62%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 27% 22%;
+    --input: 220 27% 22%;
+    --ring: 221 95% 67%;
+    --radius: 0.8rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(900px 500px at 10% -10%, rgba(95, 129, 255, 0.2), transparent),
+      radial-gradient(700px 420px at 100% 0%, rgba(47, 198, 130, 0.12), transparent);
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight;
+  }
+
+  .status-number {
+    @apply text-4xl font-bold leading-none sm:text-5xl;
+  }
+}

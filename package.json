@@ -1,0 +1,23 @@
+{
+  "name": "curtain-automation",
+  "version": "1.0.0",
+  "description": "Tuya curtain automation on GCP Cloud Functions",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "deploy": "npm run build && gcloud functions deploy curtain-automation --gen2 --runtime=nodejs22 --region=us-central1 --source=. --entry-point=curtainAutomation --trigger-http --allow-unauthenticated --timeout=540s --memory=256Mi --set-secrets=TUYA_ACCESS_KEY=tuya-access-key:latest,TUYA_ACCESS_SECRET=tuya-access-secret:latest,TUYA_DEVICE_ID=tuya-device-id:latest,TUYA_REGION=tuya-region:latest"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.0.0",
+    "@google-cloud/functions-framework": "^3.0.0",
+    "@google-cloud/scheduler": "^4.0.0",
+    "@tuya/tuya-connector-nodejs": "^2.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.0.0"
+  }
+}
