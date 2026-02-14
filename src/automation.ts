@@ -8,6 +8,22 @@ function sleep(seconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function derivePollingSettings(stepIntervalSeconds: number): {
+  pollIntervalSeconds: number;
+  pollTimeoutSeconds: number;
+} {
+  const safeStepInterval = clamp(stepIntervalSeconds, 1, 3600);
+
+  const pollIntervalSeconds = clamp(Math.round(safeStepInterval / 3), 2, 10);
+  const pollTimeoutSeconds = clamp(Math.round(safeStepInterval * 2), 30, 300);
+
+  return { pollIntervalSeconds, pollTimeoutSeconds };
+}
+
 /**
  * Waits for the curtain to reach (or exceed) the target position.
  * Polls the device status at the configured interval.
@@ -87,11 +103,15 @@ export async function runAutomation(
   client: TuyaClient,
   config: AutomationConfig
 ): Promise<AutomationResult> {
-  const { steps, stepDelaySeconds, pollIntervalSeconds, pollTimeoutSeconds, sendFinalOpen } =
+  const { steps, stepIntervalSeconds, sendFinalOpen } =
     config;
+  const { pollIntervalSeconds, pollTimeoutSeconds } = derivePollingSettings(stepIntervalSeconds);
 
   console.log('Starting gradual opening sequence...');
-  console.log(`Steps: [${steps.join(', ')}], delay: ${stepDelaySeconds}s`);
+  console.log(`Steps: [${steps.join(', ')}], interval: ${stepIntervalSeconds}s`);
+  console.log(
+    `Auto polling: every ${pollIntervalSeconds}s, timeout ${pollTimeoutSeconds}s`
+  );
 
   let stepsCompleted = 0;
 
@@ -148,10 +168,13 @@ export async function runAutomation(
     }
 
     stepsCompleted++;
-    console.log(
-      `Successfully moved to ~${percent}%. Waiting ${stepDelaySeconds}s before next step...`
-    );
-    await sleep(stepDelaySeconds);
+    const isLastStep = stepsCompleted >= steps.length;
+    if (!isLastStep) {
+      console.log(
+        `Successfully moved to ~${percent}%. Waiting ${stepIntervalSeconds}s before next step...`
+      );
+      await sleep(stepIntervalSeconds);
+    }
   }
 
   // Final step: send 'open' command to reach 100%

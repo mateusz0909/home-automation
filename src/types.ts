@@ -25,12 +25,8 @@ export interface AutomationConfig {
   timezone: string;
   /** Percentage steps to open gradually, e.g. [10, 20, 30, ..., 90] */
   steps: number[];
-  /** Seconds to wait between steps */
-  stepDelaySeconds: number;
-  /** Seconds to sleep between polling checks inside waitForPosition */
-  pollIntervalSeconds: number;
-  /** Seconds before waitForPosition gives up */
-  pollTimeoutSeconds: number;
+  /** User-facing interval in seconds between successful steps */
+  stepIntervalSeconds: number;
   /** Whether to send a final 'open' command after the last step */
   sendFinalOpen: boolean;
   /** Master enable/disable switch */
@@ -50,9 +46,9 @@ export interface UpdateScheduleRequest {
   cronExpression?: string;
   timezone?: string;
   steps?: number[];
+  stepIntervalSeconds?: number;
+  // Backward compatibility for old clients
   stepDelaySeconds?: number;
-  pollIntervalSeconds?: number;
-  pollTimeoutSeconds?: number;
   sendFinalOpen?: boolean;
   enabled?: boolean;
 }

@@ -6,15 +6,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { cn } from '@/lib/utils';
 
 interface Config {
   cronExpression: string;
   timezone: string;
   steps: number[];
-  stepDelaySeconds: number;
-  pollIntervalSeconds: number;
-  pollTimeoutSeconds: number;
+  stepIntervalSeconds: number;
   sendFinalOpen: boolean;
   enabled: boolean;
 }
@@ -108,9 +105,7 @@ export default function ConfigPage() {
 
   // Config fields
   const [stepsStr, setStepsStr] = useState('');
-  const [stepDelay, setStepDelay] = useState(15);
-  const [pollInterval, setPollInterval] = useState(480);
-  const [pollTimeout, setPollTimeout] = useState(120);
+  const [stepInterval, setStepInterval] = useState(15);
   const [sendFinalOpen, setSendFinalOpen] = useState(true);
   const [enabled, setEnabled] = useState(true);
 
@@ -133,9 +128,7 @@ export default function ConfigPage() {
       setTimezone(data.timezone || 'Europe/Prague');
 
       setStepsStr((data.steps || []).join(', '));
-      setStepDelay(data.stepDelaySeconds ?? 15);
-      setPollInterval(data.pollIntervalSeconds ?? 480);
-      setPollTimeout(data.pollTimeoutSeconds ?? 120);
+      setStepInterval(data.stepIntervalSeconds ?? data.stepDelaySeconds ?? 15);
       setSendFinalOpen(data.sendFinalOpen ?? true);
       setEnabled(data.enabled ?? true);
     } catch {
@@ -218,9 +211,7 @@ export default function ConfigPage() {
 
     const updates: Partial<Config> = {
       steps,
-      stepDelaySeconds: stepDelay,
-      pollIntervalSeconds: pollInterval,
-      pollTimeoutSeconds: pollTimeout,
+      stepIntervalSeconds: stepInterval,
       sendFinalOpen,
       enabled,
     };
@@ -419,41 +410,32 @@ export default function ConfigPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Timing</CardTitle>
-          <CardDescription>Set delays and polling strategy for each opening step.</CardDescription>
+          <CardDescription>
+            Set only the interval between steps. Polling and timeout are auto-optimized.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Step delay (seconds)</Label>
+            <Label>Interval between steps (seconds)</Label>
             <Input
               type="number"
               min={1}
-              value={stepDelay}
-              onChange={(e) => setStepDelay(parseInt(e.target.value) || 15)}
-            />
-            <p className="text-xs text-muted-foreground">Pause between each step.</p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Poll interval (seconds)</Label>
-            <Input
-              type="number"
-              min={1}
-              value={pollInterval}
-              onChange={(e) => setPollInterval(parseInt(e.target.value) || 480)}
-            />
-            <p className="text-xs text-muted-foreground">How often to check status while waiting.</p>
-          </div>
-
-          <div className="space-y-2 sm:col-span-2">
-            <Label>Poll timeout (seconds)</Label>
-            <Input
-              type="number"
-              min={10}
-              value={pollTimeout}
-              onChange={(e) => setPollTimeout(parseInt(e.target.value) || 120)}
+              max={3600}
+              value={stepInterval}
+              onChange={(e) => setStepInterval(parseInt(e.target.value) || 15)}
               className="sm:max-w-xs"
             />
-            <p className="text-xs text-muted-foreground">Max wait time per step before failing.</p>
+            <p className="text-xs text-muted-foreground">
+              Recommended: 10–30s. Backend auto-derives safe poll interval and timeout.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-border/80 bg-muted/35 p-3 text-xs text-muted-foreground">
+            Internally calculated by backend:
+            <br />
+            Poll interval = max(2s, min(10s, round(interval/3)))
+            <br />
+            Poll timeout = max(30s, min(300s, round(interval×2)))
           </div>
         </CardContent>
       </Card>

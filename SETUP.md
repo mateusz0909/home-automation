@@ -118,7 +118,7 @@ curl -X PUT $FUNCTION_URL/config \
 # Change step configuration
 curl -X PUT $FUNCTION_URL/config \
   -H "Content-Type: application/json" \
-  -d '{"steps": [20, 40, 60, 80], "stepDelaySeconds": 30}'
+  -d '{"steps": [20, 40, 60, 80], "stepIntervalSeconds": 20}'
 
 # Trigger with custom steps (one-time override)
 curl -X POST $FUNCTION_URL/trigger \
@@ -145,11 +145,11 @@ The config is stored in Firestore (`curtain-automation/config`) and can be updat
 | `cronExpression` | string | `"0 7 * * *"` | Cron schedule |
 | `timezone` | string | `"Europe/Prague"` | IANA timezone |
 | `steps` | number[] | `[10,20,...,90]` | Percentage steps |
-| `stepDelaySeconds` | number | `15` | Pause between steps |
-| `pollIntervalSeconds` | number | `480` | Status check interval (seconds) |
-| `pollTimeoutSeconds` | number | `120` | Max wait per step (seconds) |
+| `stepIntervalSeconds` | number | `15` | Interval between steps |
 | `sendFinalOpen` | boolean | `true` | Send 'open' command after last step |
 | `enabled` | boolean | `true` | Master on/off switch |
+
+`pollIntervalSeconds` and `pollTimeoutSeconds` are now automatically derived in backend for safer defaults.
 
 > **Note:** The Cloud Scheduler job must be manually updated if you change `cronExpression` via the config API. The config API updates Firestore only. To also update the scheduler: `./deploy.sh --update-scheduler`
 
