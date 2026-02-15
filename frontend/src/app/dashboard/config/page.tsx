@@ -419,14 +419,14 @@ export default function ConfigPage() {
             <Label>Interval between steps (seconds)</Label>
             <Input
               type="number"
-              min={1}
-              max={3600}
+              min={5}
+              max={45}
               value={stepInterval}
               onChange={(e) => setStepInterval(parseInt(e.target.value) || 15)}
               className="sm:max-w-xs"
             />
             <p className="text-xs text-muted-foreground">
-              Recommended: 10–30s. Backend auto-derives safe poll interval and timeout.
+              Recommended: 10–30s. Allowed range: 5–45s.
             </p>
           </div>
 

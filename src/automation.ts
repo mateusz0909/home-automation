@@ -13,15 +13,20 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function derivePollingSettings(stepIntervalSeconds: number): {
+  effectiveStepIntervalSeconds: number;
   pollIntervalSeconds: number;
   pollTimeoutSeconds: number;
 } {
-  const safeStepInterval = clamp(stepIntervalSeconds, 1, 3600);
+  const safeStepInterval = clamp(stepIntervalSeconds, 5, 45);
 
   const pollIntervalSeconds = clamp(Math.round(safeStepInterval / 3), 2, 10);
   const pollTimeoutSeconds = clamp(Math.round(safeStepInterval * 2), 30, 300);
 
-  return { pollIntervalSeconds, pollTimeoutSeconds };
+  return {
+    effectiveStepIntervalSeconds: safeStepInterval,
+    pollIntervalSeconds,
+    pollTimeoutSeconds,
+  };
 }
 
 /**
@@ -105,10 +110,16 @@ export async function runAutomation(
 ): Promise<AutomationResult> {
   const { steps, stepIntervalSeconds, sendFinalOpen } =
     config;
-  const { pollIntervalSeconds, pollTimeoutSeconds } = derivePollingSettings(stepIntervalSeconds);
+  const {
+    effectiveStepIntervalSeconds,
+    pollIntervalSeconds,
+    pollTimeoutSeconds,
+  } = derivePollingSettings(stepIntervalSeconds);
 
   console.log('Starting gradual opening sequence...');
-  console.log(`Steps: [${steps.join(', ')}], interval: ${stepIntervalSeconds}s`);
+  console.log(
+    `Steps: [${steps.join(', ')}], interval: ${stepIntervalSeconds}s (effective: ${effectiveStepIntervalSeconds}s)`
+  );
   console.log(
     `Auto polling: every ${pollIntervalSeconds}s, timeout ${pollTimeoutSeconds}s`
   );
@@ -171,9 +182,9 @@ export async function runAutomation(
     const isLastStep = stepsCompleted >= steps.length;
     if (!isLastStep) {
       console.log(
-        `Successfully moved to ~${percent}%. Waiting ${stepIntervalSeconds}s before next step...`
+        `Successfully moved to ~${percent}%. Waiting ${effectiveStepIntervalSeconds}s before next step...`
       );
-      await sleep(stepIntervalSeconds);
+      await sleep(effectiveStepIntervalSeconds);
     }
   }
 
@@ -187,6 +198,33 @@ export async function runAutomation(
     const openSuccess = await client.sendDirectionalCommand('open');
     if (openSuccess) {
       await waitForPosition(client, 100, pollIntervalSeconds, pollTimeoutSeconds);
+    }
+
+    let finalCheck = await client.getDeviceStatus();
+    if (finalCheck !== null && finalCheck < 99) {
+      console.log(
+        `Final position is ${finalCheck}%. Retrying with explicit 100% command...`
+      );
+      const force100Success = await client.setDevicePercent(100);
+      if (force100Success) {
+        await waitForPosition(client, 100, pollIntervalSeconds, pollTimeoutSeconds);
+      }
+
+      finalCheck = await client.getDeviceStatus();
+      if (finalCheck !== null && finalCheck < 99) {
+        console.log(
+          `Still at ${finalCheck}%. Sending one more 'open' retry...`
+        );
+        const secondOpen = await client.sendDirectionalCommand('open');
+        if (secondOpen) {
+          await waitForPosition(
+            client,
+            100,
+            pollIntervalSeconds,
+            pollTimeoutSeconds
+          );
+        }
+      }
     }
   }
 
