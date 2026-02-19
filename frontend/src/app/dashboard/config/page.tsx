@@ -16,6 +16,29 @@ interface Config {
   enabled: boolean;
 }
 
+const DURATION_PRESETS = [
+  { label: '5s', value: 5 },
+  { label: '10s', value: 10 },
+  { label: '15s', value: 15 },
+  { label: '30s', value: 30 },
+  { label: '1 min', value: 60 },
+  { label: '2 min', value: 120 },
+  { label: '5 min', value: 300 },
+  { label: '10 min', value: 600 },
+];
+
+function clampInterval(v: number): number {
+  return Math.max(5, Math.min(600, Math.round(v)));
+}
+
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m === 0) return `${s}s`;
+  if (s === 0) return `${m}m`;
+  return `${m}m ${s}s`;
+}
+
 const DAYS_OF_WEEK = [
   { label: 'Mon', value: 1 },
   { label: 'Tue', value: 2 },
@@ -411,23 +434,67 @@ export default function ConfigPage() {
         <CardHeader>
           <CardTitle className="text-base">Timing</CardTitle>
           <CardDescription>
-            Set only the interval between steps. Polling and timeout are auto-optimized.
+            Set the interval between opening steps. Maximum is 10 minutes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Interval between steps (seconds)</Label>
-            <Input
-              type="number"
-              min={5}
-              max={45}
-              value={stepInterval}
-              onChange={(e) => setStepInterval(parseInt(e.target.value) || 15)}
-              className="sm:max-w-xs"
-            />
-            <p className="text-xs text-muted-foreground">
-              Recommended: 10–30s. Allowed range: 5–45s.
-            </p>
+          <div className="space-y-3">
+            <Label>Interval between steps</Label>
+
+            {/* MM : SS picker */}
+            <div className="flex items-end gap-2">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">min</p>
+                <Input
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={Math.floor(stepInterval / 60)}
+                  onChange={(e) => {
+                    const mins = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
+                    const secs = mins === 10 ? 0 : stepInterval % 60;
+                    setStepInterval(clampInterval(mins * 60 + secs));
+                  }}
+                  className="w-20 text-center"
+                />
+              </div>
+              <span className="pb-2 text-lg font-semibold text-muted-foreground">:</span>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">sec</p>
+                <Input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={stepInterval % 60}
+                  onChange={(e) => {
+                    const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                    const mins = Math.floor(stepInterval / 60);
+                    setStepInterval(clampInterval(mins * 60 + secs));
+                  }}
+                  className="w-20 text-center"
+                  disabled={Math.floor(stepInterval / 60) === 10}
+                />
+              </div>
+              <span className="pb-2 text-sm text-muted-foreground">
+                = {formatDuration(stepInterval)}
+              </span>
+            </div>
+
+            {/* Quick presets */}
+            <div className="flex flex-wrap gap-2 pt-1">
+              {DURATION_PRESETS.map((p) => (
+                <Button
+                  key={p.value}
+                  type="button"
+                  size="sm"
+                  variant={stepInterval === p.value ? 'default' : 'outline'}
+                  onClick={() => setStepInterval(p.value)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">Allowed range: 5s – 10min.</p>
           </div>
 
           <div className="rounded-lg border border-border/80 bg-muted/35 p-3 text-xs text-muted-foreground">
