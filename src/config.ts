@@ -119,7 +119,7 @@ export class ConfigService {
 
     const normalizedStepInterval =
       typeof stepIntervalCandidate === 'number'
-        ? Math.max(5, Math.min(600, Math.round(stepIntervalCandidate)))
+        ? Math.max(5, Math.min(360, Math.round(stepIntervalCandidate)))
         : undefined;
 
     return {

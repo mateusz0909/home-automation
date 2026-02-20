@@ -24,11 +24,11 @@ const DURATION_PRESETS = [
   { label: '1 min', value: 60 },
   { label: '2 min', value: 120 },
   { label: '5 min', value: 300 },
-  { label: '10 min', value: 600 },
+  { label: '6 min', value: 360 },
 ];
 
 function clampInterval(v: number): number {
-  return Math.max(5, Math.min(600, Math.round(v)));
+  return Math.max(5, Math.min(360, Math.round(v)));
 }
 
 function formatDuration(seconds: number): string {
@@ -434,7 +434,7 @@ export default function ConfigPage() {
         <CardHeader>
           <CardTitle className="text-base">Timing</CardTitle>
           <CardDescription>
-            Set the interval between opening steps. Maximum is 10 minutes.
+            Set the interval between opening steps. Maximum is 6 minutes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -448,11 +448,11 @@ export default function ConfigPage() {
                 <Input
                   type="number"
                   min={0}
-                  max={10}
+                  max={6}
                   value={Math.floor(stepInterval / 60)}
                   onChange={(e) => {
-                    const mins = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
-                    const secs = mins === 10 ? 0 : stepInterval % 60;
+                    const mins = Math.min(6, Math.max(0, parseInt(e.target.value) || 0));
+                    const secs = mins === 6 ? 0 : stepInterval % 60;
                     setStepInterval(clampInterval(mins * 60 + secs));
                   }}
                   className="w-20 text-center"
@@ -472,7 +472,7 @@ export default function ConfigPage() {
                     setStepInterval(clampInterval(mins * 60 + secs));
                   }}
                   className="w-20 text-center"
-                  disabled={Math.floor(stepInterval / 60) === 10}
+                  disabled={Math.floor(stepInterval / 60) === 6}
                 />
               </div>
               <span className="pb-2 text-sm text-muted-foreground">
@@ -494,7 +494,7 @@ export default function ConfigPage() {
                 </Button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Allowed range: 5s – 10min.</p>
+            <p className="text-xs text-muted-foreground">Allowed range: 5s – 6min.</p>
           </div>
 
           <div className="rounded-lg border border-border/80 bg-muted/35 p-3 text-xs text-muted-foreground">

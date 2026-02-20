@@ -40,7 +40,7 @@ gcloud functions deploy "${FUNCTION_NAME}" \
   --entry-point=curtainAutomation \
   --trigger-http \
   --allow-unauthenticated \
-  --timeout=540s \
+  --timeout=3600s \
   --memory=256Mi \
   --cpu=1 \
   --min-instances=0 \
@@ -68,9 +68,10 @@ if [[ "${1:-}" == "--update-scheduler" ]]; then
       --time-zone="Europe/Prague" \
       --uri="${FUNCTION_URL}/trigger" \
       --http-method=POST \
-      --headers="Content-Type=application/json" \
+      --update-headers="Content-Type=application/json" \
       --message-body='{}' \
-      --attempt-deadline=600s
+      --attempt-deadline=1800s \
+      --max-retry-attempts=0
   else
     echo "Creating new scheduler job..."
     gcloud scheduler jobs create http "${SCHEDULER_JOB_NAME}" \
@@ -81,7 +82,8 @@ if [[ "${1:-}" == "--update-scheduler" ]]; then
       --http-method=POST \
       --headers="Content-Type=application/json" \
       --message-body='{}' \
-      --attempt-deadline=600s
+      --attempt-deadline=1800s \
+      --max-retry-attempts=0
   fi
 
   echo "Scheduler job '${SCHEDULER_JOB_NAME}' configured."
