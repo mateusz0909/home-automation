@@ -77,10 +77,17 @@ export class TuyaClient {
         },
       }) as any;
 
-      const success = response?.result?.success ?? response?.success;
-      const result = response?.result?.result ?? response?.result;
+      const data = response?.result || response;
+      const success = data?.success ?? response?.success;
+      const result = data?.result ?? response?.result;
+
       console.log(`Command result: success=${success}, result=${result}`);
-      return success === true && result === true;
+
+      if (!(success === true && result === true)) {
+        console.error('Tuya API Error Response:', JSON.stringify(response));
+        return false;
+      }
+      return true;
     } catch (error) {
       console.error('Error sending percent command:', error);
       return false;
@@ -103,10 +110,17 @@ export class TuyaClient {
         },
       }) as any;
 
-      const success = response?.result?.success ?? response?.success;
-      const result = response?.result?.result ?? response?.result;
+      const data = response?.result || response;
+      const success = data?.success ?? response?.success;
+      const result = data?.result ?? response?.result;
+
       console.log(`Command result: success=${success}, result=${result}`);
-      return success === true && result === true;
+
+      if (!(success === true && result === true)) {
+        console.error('Tuya API Error Response:', JSON.stringify(response));
+        return false;
+      }
+      return true;
     } catch (error) {
       console.error('Error sending directional command:', error);
       return false;
