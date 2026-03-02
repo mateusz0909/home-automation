@@ -20,7 +20,7 @@ function derivePollingSettings(stepIntervalSeconds: number): {
   const safeStepInterval = clamp(stepIntervalSeconds, 5, 360);
 
   const pollIntervalSeconds = clamp(Math.round(safeStepInterval / 3), 2, 10);
-  const pollTimeoutSeconds = clamp(Math.round(safeStepInterval * 2), 30, 300);
+  const pollTimeoutSeconds = clamp(Math.round(safeStepInterval * 2), 30, 720);
 
   return {
     effectiveStepIntervalSeconds: safeStepInterval,

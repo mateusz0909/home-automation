@@ -383,8 +383,8 @@ export default function ConfigPage() {
                 : selectedDays.length === 0
                   ? 'No days selected'
                   : DAYS_OF_WEEK.filter((d) => selectedDays.includes(d.value))
-                      .map((d) => d.label)
-                      .join(', ')}{' '}
+                    .map((d) => d.label)
+                    .join(', ')}{' '}
               at {timeDisplay} ({timezone})
             </p>
             <p className="mt-1 font-mono text-xs">cron: {buildCron(scheduleHour, scheduleMinute, selectedDays)}</p>
@@ -502,7 +502,7 @@ export default function ConfigPage() {
             <br />
             Poll interval = max(2s, min(10s, round(interval/3)))
             <br />
-            Poll timeout = max(30s, min(300s, round(interval×2)))
+            Poll timeout = max(30s, min(720s, round(interval×2)))
           </div>
         </CardContent>
       </Card>
