@@ -33,8 +33,12 @@ function parseTimestampToMillis(value: unknown): number {
     return direct;
   }
 
-  // Workflows can emit RFC3339 with nanoseconds; JavaScript Date only accepts milliseconds.
-  const normalized = value.replace(/\.(\d{3})\d+Z$/, '.$1Z');
+  // Workflows can emit RFC3339 with micro/nanoseconds and timezone offsets.
+  // JavaScript Date parsing is inconsistent for >3 fractional digits, so truncate to millis.
+  const normalized = value.replace(
+    /\.(\d{1,9})(Z|[+-]\d{2}:\d{2})$/,
+    (_m, fraction: string, tz: string) => `.${fraction.slice(0, 3).padEnd(3, '0')}${tz}`
+  );
   return Date.parse(normalized);
 }
 
@@ -183,27 +187,40 @@ ff.http('curtainAutomation', async (req: ff.Request, res: ff.Response) => {
     if (method === 'POST' && path === '/workflow/log') {
       const body = (req.body || {}) as WorkflowExecutionLogRequest;
 
+      const stepsCompleted =
+        typeof body.stepsCompleted === 'number'
+          ? Math.max(0, Math.round(body.stepsCompleted))
+          : 0;
+      const totalSteps =
+        typeof body.totalSteps === 'number'
+          ? Math.max(0, Math.round(body.totalSteps))
+          : 0;
+      const finalPosition =
+        typeof body.finalPosition === 'number'
+          ? Math.max(0, Math.min(100, Math.round(body.finalPosition)))
+          : null;
+
       const startedAtMs = parseTimestampToMillis(body.startedAt);
-      const durationMs = Number.isFinite(startedAtMs)
+      let durationMs = Number.isFinite(startedAtMs)
         ? Math.max(0, Date.now() - startedAtMs)
         : 0;
+
+      if (durationMs === 0 && stepsCompleted > 0) {
+        const config = await configService.getConfig();
+        // Fallback estimate when Workflows timestamp format is not parseable.
+        const estimatedSeconds =
+          Math.max(0, stepsCompleted - 1) * config.stepIntervalSeconds +
+          stepsCompleted * 5;
+        durationMs = Math.max(1000, estimatedSeconds * 1000);
+      }
 
       const log: ExecutionLog = {
         timestamp: new Date().toISOString(),
         trigger: 'scheduled',
         success: Boolean(body.success),
-        stepsCompleted:
-          typeof body.stepsCompleted === 'number'
-            ? Math.max(0, Math.round(body.stepsCompleted))
-            : 0,
-        totalSteps:
-          typeof body.totalSteps === 'number'
-            ? Math.max(0, Math.round(body.totalSteps))
-            : 0,
-        finalPosition:
-          typeof body.finalPosition === 'number'
-            ? Math.max(0, Math.min(100, Math.round(body.finalPosition)))
-            : null,
+        stepsCompleted,
+        totalSteps,
+        finalPosition,
         durationMs,
         ...(body.error ? { error: String(body.error) } : {}),
       };
