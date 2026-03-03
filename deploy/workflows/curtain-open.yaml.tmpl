@@ -1,0 +1,148 @@
+main:
+  steps:
+    - loadConfig:
+        call: http.get
+        args:
+          url: ${"__FUNCTION_URL__/config"}
+        result: configResp
+
+    - validateConfigResponse:
+        switch:
+          - condition: ${configResp.code >= 400}
+            raise: '${"Failed to load config. HTTP status: " + string(configResp.code)}'
+
+    - init:
+        assign:
+          - config: ${configResp.body}
+          - steps: ${configResp.body.steps}
+          - interval: ${configResp.body.stepIntervalSeconds}
+          - sendFinalOpen: ${configResp.body.sendFinalOpen}
+          - startedAt: ${sys.now()}
+          - completedSteps: 0
+          - finalPosition: null
+
+    - skipWhenDisabled:
+        switch:
+          - condition: ${config.enabled == false}
+            steps:
+              - logDisabledRun:
+                  call: http.post
+                  args:
+                    url: ${"__FUNCTION_URL__/workflow/log"}
+                    headers:
+                      Content-Type: application/json
+                    body:
+                      success: true
+                      stepsCompleted: 0
+                      totalSteps: ${len(steps)}
+                      finalPosition: null
+                      startedAt: ${string(startedAt)}
+                      error: "Automation disabled"
+                  result: disabledLogResp
+
+              - returnDisabled:
+                  return:
+                    success: true
+                    skipped: true
+                    reason: "Automation disabled"
+
+    - runSequence:
+        try:
+          steps:
+            - executeSteps:
+                for:
+                  value: target
+                  index: idx
+                  in: ${steps}
+                  steps:
+                    - runStep:
+                        call: http.post
+                        args:
+                          url: ${"__FUNCTION_URL__/step"}
+                          headers:
+                            Content-Type: application/json
+                          body:
+                            targetPercent: ${target}
+                        result: stepResp
+
+                    - validateStep:
+                        switch:
+                          - condition: ${stepResp.code >= 400 or stepResp.body.success == false}
+                            raise: '${"Step failed at target " + string(target) + "%"}'
+
+                    - updateProgress:
+                        assign:
+                          - completedSteps: ${completedSteps + 1}
+                          - finalPosition: ${stepResp.body.finalPosition}
+
+                    - waitBetweenSteps:
+                        switch:
+                          - condition: ${idx < len(steps) - 1}
+                            steps:
+                              - sleep:
+                                  call: sys.sleep
+                                  args:
+                                    seconds: ${interval}
+
+            - sendFinalOpenIfEnabled:
+                switch:
+                  - condition: ${sendFinalOpen == true}
+                    steps:
+                      - finalOpen:
+                          call: http.post
+                          args:
+                            url: ${"__FUNCTION_URL__/command"}
+                            headers:
+                              Content-Type: application/json
+                            body:
+                              command: "open"
+                          result: finalOpenResp
+
+                      - validateFinalOpen:
+                          switch:
+                            - condition: ${finalOpenResp.code >= 400 or finalOpenResp.body.success == false}
+                              raise: "Final open command failed"
+
+                      - updateFinalPosition:
+                          assign:
+                            - finalPosition: ${finalOpenResp.body.position}
+
+            - logSuccess:
+                call: http.post
+                args:
+                  url: ${"__FUNCTION_URL__/workflow/log"}
+                  headers:
+                    Content-Type: application/json
+                  body:
+                    success: true
+                    stepsCompleted: ${completedSteps}
+                    totalSteps: ${len(steps)}
+                    finalPosition: ${finalPosition}
+                    startedAt: ${string(startedAt)}
+                result: successLogResp
+
+            - done:
+                return:
+                  success: true
+                  stepsExecuted: ${completedSteps}
+                  finalPosition: ${finalPosition}
+        except:
+          as: e
+          steps:
+            - logFailure:
+                call: http.post
+                args:
+                  url: ${"__FUNCTION_URL__/workflow/log"}
+                  headers:
+                    Content-Type: application/json
+                  body:
+                    success: false
+                    stepsCompleted: ${completedSteps}
+                    totalSteps: ${len(steps)}
+                    finalPosition: ${finalPosition}
+                    startedAt: ${string(startedAt)}
+                    error: ${string(e)}
+                result: failureLogResp
+
+            - rethrow:
+                raise: ${e}

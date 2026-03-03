@@ -25,6 +25,9 @@ fi
 
 PROJECT_ID="$1"
 REGION="us-central1"
+WORKFLOW_NAME="curtain-daily-open-workflow"
+SCHEDULER_SA_NAME="curtain-scheduler-invoker"
+SCHEDULER_SA_EMAIL="${SCHEDULER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 echo "=== Setting up GCP project: ${PROJECT_ID} ==="
 
@@ -39,9 +42,31 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   cloudscheduler.googleapis.com \
+  workflows.googleapis.com \
   firestore.googleapis.com \
   secretmanager.googleapis.com \
   artifactregistry.googleapis.com
+
+echo ""
+echo "--- Creating Scheduler service account for Workflows execution ---"
+if gcloud iam service-accounts describe "${SCHEDULER_SA_EMAIL}" &>/dev/null; then
+  echo "(Service account already exists)"
+else
+  gcloud iam service-accounts create "${SCHEDULER_SA_NAME}" \
+    --display-name="Curtain Scheduler Invoker"
+fi
+
+echo ""
+echo "--- Granting Scheduler service account workflow invoke role ---"
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${SCHEDULER_SA_EMAIL}" \
+  --role="roles/workflows.invoker" >/dev/null
+
+echo ""
+echo "--- Granting Scheduler service account function invoke role (manual fallback) ---"
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${SCHEDULER_SA_EMAIL}" \
+  --role="roles/run.invoker" >/dev/null
 
 echo ""
 echo "--- Creating Firestore database (Native mode) ---"
@@ -90,3 +115,5 @@ echo "  1. Set the budget alert (link above)"
 echo "  2. Run: npm install"
 echo "  3. Run: npm run build"
 echo "  4. Run: ./deploy.sh --update-scheduler"
+echo ""
+echo "Workflow to be deployed later: ${WORKFLOW_NAME}"

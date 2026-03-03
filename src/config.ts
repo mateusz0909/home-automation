@@ -15,6 +15,47 @@ const COLLECTION = 'curtain-automation';
 const CONFIG_DOC = 'config';
 const LOGS_COLLECTION = 'execution-logs';
 
+const MIN_STEP_INTERVAL_SECONDS = 5;
+const MAX_STEP_INTERVAL_SECONDS = 360;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function sanitizeSteps(input: unknown): number[] | undefined {
+  if (!Array.isArray(input)) {
+    return undefined;
+  }
+
+  const cleaned = input
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.round(n))
+    .filter((n) => n >= 0 && n <= 100)
+    .sort((a, b) => a - b)
+    .filter((n, idx, arr) => idx === 0 || n !== arr[idx - 1]);
+
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function applyRuntimeSafety(config: AutomationConfig): AutomationConfig {
+  const safeSteps = sanitizeSteps(config.steps) || [...DEFAULT_CONFIG.steps];
+  const requestedInterval =
+    typeof config.stepIntervalSeconds === 'number'
+      ? config.stepIntervalSeconds
+      : DEFAULT_CONFIG.stepIntervalSeconds;
+
+  return {
+    ...config,
+    steps: safeSteps,
+    stepIntervalSeconds: clamp(
+      requestedInterval,
+      MIN_STEP_INTERVAL_SECONDS,
+      MAX_STEP_INTERVAL_SECONDS
+    ),
+  };
+}
+
 export class ConfigService {
   private db: Firestore;
 
@@ -39,7 +80,18 @@ export class ConfigService {
 
       const data = this.normalizeConfig(doc.data() as Record<string, unknown>);
       // Merge with defaults to fill any missing fields
-      return { ...DEFAULT_CONFIG, ...data };
+      const merged = { ...DEFAULT_CONFIG, ...data };
+      const safeConfig = applyRuntimeSafety(merged);
+
+      if (
+        safeConfig.stepIntervalSeconds !== merged.stepIntervalSeconds ||
+        JSON.stringify(safeConfig.steps) !== JSON.stringify(merged.steps)
+      ) {
+        await this.db.collection(COLLECTION).doc(CONFIG_DOC).set(safeConfig);
+        console.warn('Stored config was adjusted to runtime-safe values.');
+      }
+
+      return safeConfig;
     } catch (error) {
       console.error('Error reading config from Firestore:', error);
       console.log('Falling back to default config');
@@ -56,10 +108,22 @@ export class ConfigService {
     const normalizedUpdates = this.normalizeConfig(updates as Record<string, unknown>);
     const newConfig = { ...DEFAULT_CONFIG, ...normalizedCurrent, ...normalizedUpdates };
 
-    await this.db.collection(COLLECTION).doc(CONFIG_DOC).set(newConfig);
-    console.log('Config updated in Firestore:', JSON.stringify(newConfig));
+    const requestedInterval =
+      typeof newConfig.stepIntervalSeconds === 'number'
+        ? newConfig.stepIntervalSeconds
+        : DEFAULT_CONFIG.stepIntervalSeconds;
+    const safeConfig = applyRuntimeSafety(newConfig as AutomationConfig);
 
-    return newConfig;
+    if (requestedInterval > MAX_STEP_INTERVAL_SECONDS) {
+      console.warn(
+        `stepIntervalSeconds ${requestedInterval}s is too high; clamped to ${MAX_STEP_INTERVAL_SECONDS}s.`
+      );
+    }
+
+    await this.db.collection(COLLECTION).doc(CONFIG_DOC).set(safeConfig);
+    console.log('Config updated in Firestore:', JSON.stringify(safeConfig));
+
+    return safeConfig;
   }
 
   /**
@@ -119,13 +183,19 @@ export class ConfigService {
 
     const normalizedStepInterval =
       typeof stepIntervalCandidate === 'number'
-        ? Math.max(5, Math.min(360, Math.round(stepIntervalCandidate)))
+        ? clamp(
+            Math.round(stepIntervalCandidate),
+            MIN_STEP_INTERVAL_SECONDS,
+            MAX_STEP_INTERVAL_SECONDS
+          )
         : undefined;
+
+    const normalizedSteps = sanitizeSteps(input.steps);
 
     return {
       ...(typeof input.cronExpression === 'string' ? { cronExpression: input.cronExpression } : {}),
       ...(typeof input.timezone === 'string' ? { timezone: input.timezone } : {}),
-      ...(Array.isArray(input.steps) ? { steps: input.steps as number[] } : {}),
+      ...(normalizedSteps ? { steps: normalizedSteps } : {}),
       ...(normalizedStepInterval !== undefined
         ? { stepIntervalSeconds: normalizedStepInterval }
         : {}),

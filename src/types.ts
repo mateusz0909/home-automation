@@ -64,3 +64,13 @@ export interface ExecutionLog {
   durationMs: number;
   error?: string;
 }
+
+/** Request body for workflow-run summary logging */
+export interface WorkflowExecutionLogRequest {
+  success: boolean;
+  stepsCompleted: number;
+  totalSteps: number;
+  finalPosition: number | null;
+  startedAt?: string;
+  error?: string;
+}

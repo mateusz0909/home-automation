@@ -39,6 +39,15 @@ function formatDuration(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
+function parseStepsInput(input: string): number[] {
+  return input
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => !isNaN(n) && n >= 0 && n <= 100)
+    .sort((a, b) => a - b)
+    .filter((n, idx, arr) => idx === 0 || n !== arr[idx - 1]);
+}
+
 const DAYS_OF_WEEK = [
   { label: 'Mon', value: 1 },
   { label: 'Tue', value: 2 },
@@ -227,10 +236,7 @@ export default function ConfigPage() {
     setError('');
     setSuccess('');
 
-    const steps = stepsStr
-      .split(',')
-      .map((s) => parseInt(s.trim()))
-      .filter((n) => !isNaN(n) && n >= 0 && n <= 100);
+    const steps = parseStepsInput(stepsStr);
 
     const updates: Partial<Config> = {
       steps,
@@ -494,7 +500,7 @@ export default function ConfigPage() {
                 </Button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Allowed range: 5s – 6min.</p>
+            <p className="text-xs text-muted-foreground">Allowed range: 5s - 6min.</p>
           </div>
 
           <div className="rounded-lg border border-border/80 bg-muted/35 p-3 text-xs text-muted-foreground">

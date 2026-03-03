@@ -29,6 +29,23 @@ function derivePollingSettings(stepIntervalSeconds: number): {
   };
 }
 
+function estimateMinimumRuntimeSeconds(
+  stepCount: number,
+  stepIntervalSeconds: number,
+  pollIntervalSeconds: number,
+  includeFinalOpen: boolean
+): number {
+  if (stepCount <= 0) {
+    return 0;
+  }
+
+  const betweenSteps = Math.max(0, stepCount - 1) * stepIntervalSeconds;
+  const stepChecks = stepCount * pollIntervalSeconds;
+  const finalOpenCheck = includeFinalOpen ? pollIntervalSeconds : 0;
+
+  return betweenSteps + stepChecks + finalOpenCheck;
+}
+
 /**
  * Waits for the curtain to reach (or exceed) the target position.
  * Polls the device status at the configured interval.
@@ -39,9 +56,12 @@ async function waitForPosition(
   client: TuyaClient,
   targetPercent: number,
   pollIntervalSeconds: number,
-  timeoutSeconds: number
+  timeoutSeconds: number,
+  onStall?: (currentPercent: number, attempt: number) => Promise<boolean>
 ): Promise<boolean> {
   const startTime = Date.now();
+  const maxStallRecoveries = 2;
+  const pollsBeforeRecovery = 3;
 
   const initialPos = await client.getDeviceStatus();
   if (initialPos === null) {
@@ -52,6 +72,10 @@ async function waitForPosition(
   console.log(
     `Waiting for curtain to move toward ${targetPercent}% (from ${initialPos}%)`
   );
+
+  let lastObservedPos = initialPos;
+  let noMovementPolls = 0;
+  let recoveryAttempts = 0;
 
   while ((Date.now() - startTime) / 1000 < timeoutSeconds) {
     await sleep(pollIntervalSeconds);
@@ -65,6 +89,30 @@ async function waitForPosition(
       if (currentPos >= targetPercent) {
         console.log('Target position reached.');
         return true;
+      }
+
+      if (currentPos > lastObservedPos) {
+        lastObservedPos = currentPos;
+        noMovementPolls = 0;
+      } else {
+        noMovementPolls++;
+
+        if (
+          onStall &&
+          recoveryAttempts < maxStallRecoveries &&
+          noMovementPolls >= pollsBeforeRecovery
+        ) {
+          const attempt = recoveryAttempts + 1;
+          console.warn(
+            `No movement detected for ${noMovementPolls} polls at ${currentPos}%. Running recovery attempt ${attempt}/${maxStallRecoveries}...`
+          );
+
+          const recovered = await onStall(currentPos, attempt);
+          if (recovered) {
+            recoveryAttempts = attempt;
+            noMovementPolls = 0;
+          }
+        }
       }
     } else {
       console.warn('Warning: Failed to get status during a check.');
@@ -96,6 +144,105 @@ export interface AutomationResult {
   error?: string;
 }
 
+export interface AutomationRunOptions {
+  maxTotalDurationSeconds?: number;
+}
+
+export interface StepExecutionResult {
+  success: boolean;
+  targetPercent: number;
+  startPosition: number | null;
+  finalPosition: number | null;
+  error?: string;
+}
+
+/**
+ * Executes one automation step (move curtain to target percent).
+ * Useful for asynchronous orchestration tools like Cloud Workflows.
+ */
+export async function runSingleStep(
+  client: TuyaClient,
+  targetPercent: number,
+  stepIntervalSeconds: number
+): Promise<StepExecutionResult> {
+  const safeTarget = clamp(Math.round(targetPercent), 0, 100);
+  const { pollIntervalSeconds, pollTimeoutSeconds } =
+    derivePollingSettings(stepIntervalSeconds);
+
+  const currentPercent = await client.getDeviceStatus();
+  if (currentPercent === null) {
+    return {
+      success: false,
+      targetPercent: safeTarget,
+      startPosition: null,
+      finalPosition: null,
+      error: 'Failed to get device status',
+    };
+  }
+
+  if (currentPercent >= safeTarget) {
+    return {
+      success: true,
+      targetPercent: safeTarget,
+      startPosition: currentPercent,
+      finalPosition: currentPercent,
+    };
+  }
+
+  const commandSuccess = await client.setDevicePercent(safeTarget);
+  if (!commandSuccess) {
+    return {
+      success: false,
+      targetPercent: safeTarget,
+      startPosition: currentPercent,
+      finalPosition: currentPercent,
+      error: `Command to set ${safeTarget}% failed`,
+    };
+  }
+
+  const reached = await waitForPosition(
+    client,
+    safeTarget,
+    pollIntervalSeconds,
+    pollTimeoutSeconds,
+    async (_currentPos, attempt) => {
+      if (attempt === 1) {
+        console.log(`Recovery ${attempt}: re-sending percent ${safeTarget}%`);
+        return client.setDevicePercent(safeTarget);
+      }
+
+      console.log(
+        `Recovery ${attempt}: sending 'open' then re-sending percent ${safeTarget}%`
+      );
+      const openOk = await client.sendDirectionalCommand('open');
+      if (!openOk) {
+        return false;
+      }
+
+      await sleep(2);
+      return client.setDevicePercent(safeTarget);
+    }
+  );
+
+  const finalPosition = await client.getDeviceStatus();
+  if (!reached) {
+    return {
+      success: false,
+      targetPercent: safeTarget,
+      startPosition: currentPercent,
+      finalPosition,
+      error: `Curtain did not reach ${safeTarget}% (timeout or stall)`,
+    };
+  }
+
+  return {
+    success: true,
+    targetPercent: safeTarget,
+    startPosition: currentPercent,
+    finalPosition,
+  };
+}
+
 /**
  * Runs the gradual curtain opening sequence.
  *
@@ -106,7 +253,8 @@ export interface AutomationResult {
  */
 export async function runAutomation(
   client: TuyaClient,
-  config: AutomationConfig
+  config: AutomationConfig,
+  options: AutomationRunOptions = {}
 ): Promise<AutomationResult> {
   const { steps, stepIntervalSeconds, sendFinalOpen } =
     config;
@@ -115,6 +263,10 @@ export async function runAutomation(
     pollIntervalSeconds,
     pollTimeoutSeconds,
   } = derivePollingSettings(stepIntervalSeconds);
+  const maxTotalDurationSeconds =
+    typeof options.maxTotalDurationSeconds === 'number'
+      ? Math.max(30, Math.round(options.maxTotalDurationSeconds))
+      : undefined;
 
   console.log('Starting gradual opening sequence...');
   console.log(
@@ -123,6 +275,41 @@ export async function runAutomation(
   console.log(
     `Auto polling: every ${pollIntervalSeconds}s, timeout ${pollTimeoutSeconds}s`
   );
+
+  const estimatedMinimumRuntimeSeconds = estimateMinimumRuntimeSeconds(
+    steps.length,
+    effectiveStepIntervalSeconds,
+    pollIntervalSeconds,
+    sendFinalOpen
+  );
+  console.log(
+    `Estimated minimum runtime: ${estimatedMinimumRuntimeSeconds}s`
+  );
+
+  if (
+    maxTotalDurationSeconds !== undefined &&
+    estimatedMinimumRuntimeSeconds > maxTotalDurationSeconds
+  ) {
+    return {
+      success: false,
+      stepsCompleted: 0,
+      totalSteps: steps.length,
+      finalPosition: await client.getDeviceStatus(),
+      error:
+        `Estimated runtime ${estimatedMinimumRuntimeSeconds}s exceeds maximum allowed ${maxTotalDurationSeconds}s. ` +
+        'Reduce step interval or number of steps.',
+    };
+  }
+
+  const startedAt = Date.now();
+  const isOutOfTimeBudget = (): boolean => {
+    if (maxTotalDurationSeconds === undefined) {
+      return false;
+    }
+
+    const elapsedSeconds = (Date.now() - startedAt) / 1000;
+    return elapsedSeconds >= maxTotalDurationSeconds;
+  };
 
   let stepsCompleted = 0;
 
@@ -150,6 +337,17 @@ export async function runAutomation(
       continue;
     }
 
+    if (isOutOfTimeBudget()) {
+      return {
+        success: false,
+        stepsCompleted,
+        totalSteps: steps.length,
+        finalPosition: currentPercent,
+        error:
+          'Automation stopped before timeout to stay within execution deadline. Reduce step interval or steps.',
+      };
+    }
+
     const commandSuccess = await client.setDevicePercent(percent);
     if (!commandSuccess) {
       return {
@@ -165,7 +363,23 @@ export async function runAutomation(
       client,
       percent,
       pollIntervalSeconds,
-      pollTimeoutSeconds
+      pollTimeoutSeconds,
+      async (_currentPos, attempt) => {
+        if (attempt === 1) {
+          console.log(`Recovery ${attempt}: re-sending percent ${percent}%`);
+          return client.setDevicePercent(percent);
+        }
+
+        console.log(
+          `Recovery ${attempt}: sending 'open' then re-sending percent ${percent}%`
+        );
+        const openOk = await client.sendDirectionalCommand('open');
+        if (!openOk) {
+          return false;
+        }
+        await sleep(2);
+        return client.setDevicePercent(percent);
+      }
     );
     if (!reached) {
       const pos = await client.getDeviceStatus();
@@ -181,6 +395,18 @@ export async function runAutomation(
     stepsCompleted++;
     const isLastStep = stepsCompleted >= steps.length;
     if (!isLastStep) {
+      if (isOutOfTimeBudget()) {
+        const pos = await client.getDeviceStatus();
+        return {
+          success: false,
+          stepsCompleted,
+          totalSteps: steps.length,
+          finalPosition: pos,
+          error:
+            'Automation stopped before timeout to stay within execution deadline. Reduce step interval or steps.',
+        };
+      }
+
       console.log(
         `Successfully moved to ~${percent}%. Waiting ${effectiveStepIntervalSeconds}s before next step...`
       );

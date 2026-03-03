@@ -2,11 +2,41 @@ import * as ff from '@google-cloud/functions-framework';
 import { TuyaClient } from './tuya-client';
 import { ConfigService } from './config';
 import { SchedulerService } from './scheduler';
-import { runAutomation } from './automation';
-import { TriggerRequest, UpdateScheduleRequest, ExecutionLog } from './types';
+import { runAutomation, runSingleStep } from './automation';
+import {
+  TriggerRequest,
+  UpdateScheduleRequest,
+  ExecutionLog,
+  WorkflowExecutionLogRequest,
+} from './types';
 
 const configService = new ConfigService();
 const schedulerService = new SchedulerService();
+
+function getScheduledRunBudgetSeconds(): number {
+  const raw = Number(process.env.SCHEDULED_RUN_BUDGET_SECONDS);
+  if (Number.isFinite(raw) && raw >= 60 && raw <= 1700) {
+    return Math.round(raw);
+  }
+
+  // Keep a safety margin below Cloud Scheduler's HTTP deadline.
+  return 1500;
+}
+
+function parseTimestampToMillis(value: unknown): number {
+  if (typeof value !== 'string' || value.length === 0) {
+    return NaN;
+  }
+
+  const direct = Date.parse(value);
+  if (Number.isFinite(direct)) {
+    return direct;
+  }
+
+  // Workflows can emit RFC3339 with nanoseconds; JavaScript Date only accepts milliseconds.
+  const normalized = value.replace(/\.(\d{3})\d+Z$/, '.$1Z');
+  return Date.parse(normalized);
+}
 
 /**
  * Creates a TuyaClient from environment variables (loaded from Secret Manager).
@@ -128,6 +158,61 @@ ff.http('curtainAutomation', async (req: ff.Request, res: ff.Response) => {
       return;
     }
 
+    // --- POST /step — Execute one target percentage step (workflow-friendly) ---
+    if (method === 'POST' && path === '/step') {
+      const { targetPercent } = req.body as { targetPercent: number };
+
+      if (typeof targetPercent !== 'number' || Number.isNaN(targetPercent)) {
+        res.status(400).json({ error: 'targetPercent (number) is required' });
+        return;
+      }
+
+      const config = await configService.getConfig();
+      const client = createTuyaClient();
+      const result = await runSingleStep(
+        client,
+        targetPercent,
+        config.stepIntervalSeconds
+      );
+
+      res.status(result.success ? 200 : 500).json(result);
+      return;
+    }
+
+    // --- POST /workflow/log — Persist workflow execution summary ---
+    if (method === 'POST' && path === '/workflow/log') {
+      const body = (req.body || {}) as WorkflowExecutionLogRequest;
+
+      const startedAtMs = parseTimestampToMillis(body.startedAt);
+      const durationMs = Number.isFinite(startedAtMs)
+        ? Math.max(0, Date.now() - startedAtMs)
+        : 0;
+
+      const log: ExecutionLog = {
+        timestamp: new Date().toISOString(),
+        trigger: 'scheduled',
+        success: Boolean(body.success),
+        stepsCompleted:
+          typeof body.stepsCompleted === 'number'
+            ? Math.max(0, Math.round(body.stepsCompleted))
+            : 0,
+        totalSteps:
+          typeof body.totalSteps === 'number'
+            ? Math.max(0, Math.round(body.totalSteps))
+            : 0,
+        finalPosition:
+          typeof body.finalPosition === 'number'
+            ? Math.max(0, Math.min(100, Math.round(body.finalPosition)))
+            : null,
+        durationMs,
+        ...(body.error ? { error: String(body.error) } : {}),
+      };
+
+      await configService.logExecution(log);
+      res.json({ message: 'Workflow execution logged', log });
+      return;
+    }
+
     // --- POST / — Trigger automation ---
     if (method === 'POST' && (path === '/' || path === '/trigger')) {
       const body = (req.body || {}) as TriggerRequest;
@@ -149,13 +234,16 @@ ff.http('curtainAutomation', async (req: ff.Request, res: ff.Response) => {
 
       const startTime = Date.now();
       const client = createTuyaClient();
-      const result = await runAutomation(client, config);
+      const isScheduled = Boolean(req.headers['x-cloudscheduler']);
+      const result = await runAutomation(client, config, {
+        maxTotalDurationSeconds: isScheduled
+          ? getScheduledRunBudgetSeconds()
+          : undefined,
+      });
       const durationMs = Date.now() - startTime;
 
       // Log execution
-      const trigger: 'scheduled' | 'manual' = req.headers['x-cloudscheduler']
-        ? 'scheduled'
-        : 'manual';
+      const trigger: 'scheduled' | 'manual' = isScheduled ? 'scheduled' : 'manual';
 
       const log: ExecutionLog = {
         timestamp: new Date().toISOString(),
@@ -186,6 +274,8 @@ ff.http('curtainAutomation', async (req: ff.Request, res: ff.Response) => {
         'POST /': 'Trigger the curtain automation',
         'POST /trigger': 'Trigger the curtain automation (alias)',
         'POST /command': 'Send quick command (open/close/stop)',
+        'POST /step': 'Execute one step toward targetPercent (workflow use)',
+        'POST /workflow/log': 'Persist workflow execution summary',
         'GET /status': 'Get current curtain position',
         'GET /config': 'Get automation config',
         'PUT /config': 'Update automation config',
