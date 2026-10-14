@@ -24,9 +24,15 @@ export function SunriseRoutineCard({
   const isRunning = activeCommand === 'gradual';
   const effectiveSteps = steps.length > 0 ? steps : [10, 25, 45, 70, 90];
   const totalDurationSeconds = effectiveSteps.length * intervalSeconds;
-  const minutes = Math.floor(totalDurationSeconds / 60);
+  const hours = Math.floor(totalDurationSeconds / 3600);
+  const minutes = Math.floor((totalDurationSeconds % 3600) / 60);
   const seconds = totalDurationSeconds % 60;
-  const durationLabel = minutes > 0 ? `${minutes}m ${seconds > 0 ? `${seconds}s` : ''}` : `${seconds}s`;
+  const durationLabel =
+    hours > 0
+      ? `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`
+      : minutes > 0
+      ? `${minutes}m ${seconds > 0 ? `${seconds}s` : ''}`
+      : `${seconds}s`;
 
   return (
     <div className="panel-chassis relative flex flex-col justify-between overflow-hidden p-5 sm:p-6">

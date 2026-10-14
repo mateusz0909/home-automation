@@ -19,12 +19,15 @@ interface Config {
 
 const DURATION_PRESETS = [
   { label: '5s', value: 5 },
-  { label: '10s', value: 10 },
-  { label: '15s (Default)', value: 15 },
+  { label: '15s', value: 15 },
   { label: '30s', value: 30 },
   { label: '1 min', value: 60 },
   { label: '2 min', value: 120 },
   { label: '5 min', value: 300 },
+  { label: '6 min', value: 360 },
+  { label: '10 min', value: 600 },
+  { label: '15 min', value: 900 },
+  { label: '20 min', value: 1200 },
 ];
 
 const STEP_PRESETS = [
@@ -34,12 +37,14 @@ const STEP_PRESETS = [
 ];
 
 function clampInterval(v: number): number {
-  return Math.max(5, Math.min(360, Math.round(v)));
+  return Math.max(5, Math.min(1200, Math.round(v)));
 }
 
 function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
   if (m === 0) return `${s}s`;
   if (s === 0) return `${m}m`;
   return `${m}m ${s}s`;
@@ -507,30 +512,88 @@ export default function ConfigPage() {
         </div>
 
         {/* Interval between steps */}
-        <div className="space-y-2.5 pt-1">
+        <div className="space-y-3 pt-1">
           <div className="flex items-center justify-between">
-            <Label className="text-xs font-medium text-foreground">Interval Between Steps</Label>
+            <Label className="text-xs font-medium text-foreground">Interval Between Steps (5s to 20m)</Label>
             <span className="font-mono text-xs font-semibold text-primary">
               {formatDuration(stepInterval)}
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          {/* Quick preset chips */}
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {DURATION_PRESETS.map((p) => (
               <button
                 key={p.value}
                 type="button"
                 onClick={() => setStepInterval(p.value)}
                 className={cn(
-                  'rounded-lg border px-3 py-1.5 text-xs font-mono transition-all',
+                  'rounded-lg border px-2.5 py-1 text-xs font-mono transition-all',
                   stepInterval === p.value
-                    ? 'border-primary bg-primary/15 text-primary font-semibold'
+                    ? 'border-primary bg-primary/15 text-primary font-semibold shadow-sm shadow-primary/10'
                     : 'border-border/60 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
                 )}
               >
                 {p.label}
               </button>
             ))}
+          </div>
+
+          {/* Precision MM : SS custom inputs & slider */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border/80 bg-[#090b10] p-3.5">
+            <div className="flex items-center gap-2">
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono uppercase text-muted-foreground">Min</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={Math.floor(stepInterval / 60)}
+                  onChange={(e) => {
+                    const mins = Math.min(20, Math.max(0, parseInt(e.target.value, 10) || 0));
+                    const secs = mins === 20 ? 0 : stepInterval % 60;
+                    setStepInterval(clampInterval(mins * 60 + secs));
+                  }}
+                  className="h-9 w-16 text-center font-mono text-sm border-border/80 bg-secondary/40 text-foreground"
+                />
+              </div>
+              <span className="pt-4 text-base font-bold text-muted-foreground">:</span>
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono uppercase text-muted-foreground">Sec</span>
+                <Input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={stepInterval % 60}
+                  disabled={Math.floor(stepInterval / 60) >= 20}
+                  onChange={(e) => {
+                    const secs = Math.min(59, Math.max(0, parseInt(e.target.value, 10) || 0));
+                    const mins = Math.floor(stepInterval / 60);
+                    setStepInterval(clampInterval(mins * 60 + secs));
+                  }}
+                  className="h-9 w-16 text-center font-mono text-sm border-border/80 bg-secondary/40 text-foreground"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-1 sm:pt-2">
+              <input
+                type="range"
+                min={5}
+                max={1200}
+                step={5}
+                value={stepInterval}
+                onChange={(e) => setStepInterval(clampInterval(parseInt(e.target.value, 10)))}
+                className="w-full accent-amber-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
+                <span>5s</span>
+                <span>5m</span>
+                <span>10m</span>
+                <span>15m</span>
+                <span>20m</span>
+              </div>
+            </div>
           </div>
         </div>
 

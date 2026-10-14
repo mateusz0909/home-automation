@@ -17,10 +17,11 @@ export function derivePollingSettings(stepIntervalSeconds: number): {
   pollIntervalSeconds: number;
   pollTimeoutSeconds: number;
 } {
-  const safeStepInterval = clamp(stepIntervalSeconds, 5, 360);
+  const safeStepInterval = clamp(stepIntervalSeconds, 5, 1200);
 
   const pollIntervalSeconds = clamp(Math.round(safeStepInterval / 3), 2, 10);
-  const pollTimeoutSeconds = clamp(Math.round(safeStepInterval * 2), 30, 720);
+  // Physical curtain motor movement completes in ~15-25s. Cap poll timeout to max 45s so serverless step never hits Vercel 60s execution limit
+  const pollTimeoutSeconds = clamp(Math.round(safeStepInterval * 2), 30, 45);
 
   return {
     effectiveStepIntervalSeconds: safeStepInterval,

@@ -18,7 +18,7 @@ const KEY_STATUS = 'curtain:status';
 const KEY_LOGS = 'curtain:logs';
 
 const MIN_STEP_INTERVAL_SECONDS = 5;
-const MAX_STEP_INTERVAL_SECONDS = 360;
+const MAX_STEP_INTERVAL_SECONDS = 1200; // 20 minutes
 
 function sanitizeSteps(input: unknown): number[] | undefined {
   if (!Array.isArray(input)) {
