@@ -1,47 +1,33 @@
-# Copilot instructions for gcp-automation
+# Copilot instructions for home-automation
 
 ## Big picture
-- This repo has two deployable parts:
-  - `src/*`: a single Google Cloud Function (`curtainAutomation`) implemented with `@google-cloud/functions-framework`.
-  - `frontend/src/*`: a Next.js 15 dashboard that authenticates users and proxies requests to the Cloud Function.
-- Core flow: Cloud Scheduler (or dashboard/manual call) -> Cloud Function route in `src/index.ts` -> Tuya Cloud API via `src/tuya-client.ts` -> config/log persistence in Firestore via `src/config.ts`.
+- This repository is a single Next.js 15 application (`frontend/`) deployed to Vercel, designed to run 100% within free tiers.
+- Key integrations:
+  - **Tuya Cloud API**: Direct device control for curtains (`frontend/src/lib/tuya-client.ts`).
+  - **Upstash Redis**: Stores configuration (`curtain:config`), schedule state (`curtain:schedule`), real-time status (`curtain:status`), and trimmed logs (`curtain:logs`) via `frontend/src/lib/storage.ts`.
+  - **Upstash QStash & Workflow**: Handles dynamic cron scheduling via QStash Schedules API and multi-step gradual curtain opening workflows via `@upstash/workflow` (`frontend/src/app/api/curtain/workflow/route.ts`).
+  - **Dashboard**: Simple authenticated dashboard in `frontend/src/app/dashboard/*` with quick controls, configuration, and execution logs.
 
 ## Service boundaries and routes
-- Backend API surface is centralized in `src/index.ts`:
-  - `POST /` and `POST /trigger` run gradual automation (`src/automation.ts`).
-  - `POST /command` sends immediate `open|close|stop`.
-  - `GET /status`, `GET/PUT /config`, `GET/PUT /schedule`, `GET /logs`.
-- Frontend must call internal Next.js API routes (`frontend/src/app/api/curtain/*`) rather than calling GCP directly from client components.
-- API route pattern in frontend:
-  1. check `isAuthenticated()` from `frontend/src/lib/auth.ts`
-  2. call `gcpFetch()` from `frontend/src/lib/gcp.ts`
-  3. parse with `gcpJsonResponse()` and forward status/body.
+- API surface is organized under Next.js App Router (`frontend/src/app/api/curtain/*`):
+  - `POST /api/curtain/trigger` — Trigger the gradual automation (invoked by QStash cron or dashboard manual trigger).
+  - `POST /api/curtain/command` — Immediate `open|close|stop` command via Tuya client; immediately cancels any running workflow in Redis.
+  - `GET /api/curtain/status` — Retrieves live curtain position from Tuya API + execution state from Redis.
+  - `GET / PUT /api/curtain/config` — Retrieves / updates automation configuration in Redis; syncs QStash schedule when enabled state changes.
+  - `GET / PUT /api/curtain/schedule` — Retrieves schedule state from Redis / updates cron schedule in both Redis and QStash Schedules API.
+  - `GET / POST /api/curtain/logs` — Retrieves recent execution logs from Redis list.
+  - `POST /api/curtain/workflow` — Upstash Workflow route serving step-by-step curtain opening with `context.run`, `context.sleep`, and cancellation checks.
 
-## Project-specific conventions
-- Keep backend route handling in one function file (`src/index.ts`) with early returns per route.
-- Reuse `ConfigService` for all Firestore access; config document is `curtain-automation/config`, logs are subcollection `execution-logs`.
-- Reuse `SchedulerService` (`src/scheduler.ts`) when changing schedule behavior; `/schedule` updates Firestore + Cloud Scheduler together.
-- Preserve retry behavior in `frontend/src/lib/gcp.ts` (retries 429/5xx with backoff) and non-JSON fallback handling.
-- Auth is intentionally lightweight cookie-based auth (`frontend/src/lib/auth.ts`, `frontend/src/middleware.ts`); do not introduce external auth providers unless requested.
+## Project conventions
+- Node.js runtime: All routes touching `@tuya/tuya-connector-nodejs` or `node:crypto` export `export const runtime = 'nodejs'`.
+- Storage: Always use `frontend/src/lib/storage.ts` for Redis operations (`getConfig`, `updateConfig`, `getExecutionStatus`, `setExecutionStatus`, `cancelExecution`, `appendLog`, `getRecentLogs`).
+- QStash Schedules: Schedule cron expressions include `CRON_TZ=Europe/Warsaw` (or user timezone) prefix for proper daylight saving time handling.
+- Authentication: Session-cookie based auth (`frontend/src/lib/auth.ts`) for dashboard users; QStash signature verification (`frontend/src/lib/qstash.ts`) for scheduled webhooks.
+- Path aliases: Consistent `@/*` referencing `frontend/src/*`.
 
-## Developer workflows
-- Backend (repo root):
-  - `npm install`
-  - `npm run build` (TypeScript -> `dist/`)
-  - `npm run dev` (ts-node local function)
-  - `./setup.sh <PROJECT_ID>` (one-time GCP API/secrets setup)
-  - `./deploy.sh --update-scheduler` (deploy + scheduler create/update)
-- Frontend (`frontend/`):
-  - `npm install`
-  - `npm run dev` / `npm run build` / `npm run start`
-- There are currently no test/lint scripts; validate changes by building the touched package(s) and exercising affected API routes/pages.
-
-## Environment and integration points
-- Backend secrets/env: `TUYA_ACCESS_KEY`, `TUYA_ACCESS_SECRET`, `TUYA_DEVICE_ID`, `TUYA_REGION` (see `.env.example` and `deploy.sh --set-secrets`).
-- Frontend env: `GCP_FUNCTION_URL`, `AUTH_USERNAME`, `AUTH_PASSWORD`, `SESSION_SECRET` (see `frontend/.env.example`).
-- Keep TypeScript path alias usage consistent in frontend (`@/*` -> `frontend/src/*`).
-
-## When implementing changes
-- Prefer minimal, surgical updates in existing files over introducing new abstractions.
-- If adding a new curtain operation, implement backend route in `src/index.ts` first, then add matching proxy route under `frontend/src/app/api/curtain/`, then wire UI in `frontend/src/app/dashboard/*`.
-- If changing schedule/config semantics, update both backend types in `src/types.ts` and dashboard config UI in `frontend/src/app/dashboard/config/page.tsx`.
+## Environment Variables
+- `TUYA_ACCESS_ID` (or `TUYA_ACCESS_KEY`), `TUYA_ACCESS_SECRET`, `TUYA_DEVICE_ID`, `TUYA_ENDPOINT` (or `TUYA_REGION`)
+- `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+- `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`
+- `NEXT_PUBLIC_APP_URL` (or `VERCEL_PROJECT_PRODUCTION_URL`)
+- `AUTH_USERNAME`, `AUTH_PASSWORD`, `SESSION_SECRET`

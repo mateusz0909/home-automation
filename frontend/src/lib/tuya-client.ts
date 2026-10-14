@@ -38,9 +38,9 @@ function getBackoffDelayMs(attempt: number): number {
 /**
  * Determines if an error is retryable.
  */
-function isRetryableError(error: any, statusCode?: number): boolean {
+function isRetryableError(error: unknown, statusCode?: number): boolean {
   // Retry on 429 (rate limit) and 5xx (server errors)
-  if (statusCode === 429 || (statusCode && statusCode >= 500)) {
+  if (statusCode === 429 || (statusCode !== undefined && statusCode >= 500)) {
     return true;
   }
 
@@ -83,7 +83,7 @@ export class TuyaClient {
   /**
    * Gets the current percent_state of the curtain device.
    * Returns the percentage (0-100) or null if unavailable.
-   * 
+   *
    * Implements automatic retry with exponential backoff for transient failures.
    */
   async getDeviceStatus(): Promise<number | null> {
@@ -142,7 +142,7 @@ export class TuyaClient {
 
   /**
    * Sends a percent_control command to set the curtain to a specific position.
-   * 
+   *
    * Implements automatic retry with exponential backoff for transient failures.
    */
   async setDevicePercent(percent: number): Promise<boolean> {
@@ -204,7 +204,7 @@ export class TuyaClient {
 
   /**
    * Sends a directional control command (e.g., 'open', 'close', 'stop').
-   * 
+   *
    * Implements automatic retry with exponential backoff for transient failures.
    */
   async sendDirectionalCommand(command: string): Promise<boolean> {
@@ -263,4 +263,41 @@ export class TuyaClient {
 
     return false;
   }
+}
+
+/**
+ * Creates or retrieves a TuyaClient using environment variables.
+ * Supports TUYA_ACCESS_ID or TUYA_ACCESS_KEY, TUYA_ENDPOINT or TUYA_REGION.
+ */
+export function getTuyaClient(): TuyaClient {
+  const accessKey =
+    process.env.TUYA_ACCESS_KEY ||
+    process.env.TUYA_ACCESS_ID ||
+    process.env.TUYA_CLIENT_ID;
+  const secretKey =
+    process.env.TUYA_ACCESS_SECRET ||
+    process.env.TUYA_SECRET_KEY;
+  const deviceId =
+    process.env.TUYA_DEVICE_ID;
+  const rawRegion =
+    process.env.TUYA_REGION ||
+    process.env.TUYA_ENDPOINT ||
+    'eu';
+
+  if (!accessKey || !secretKey || !deviceId) {
+    throw new Error(
+      'Missing required Tuya environment variables: TUYA_ACCESS_ID (or TUYA_ACCESS_KEY), TUYA_ACCESS_SECRET, and TUYA_DEVICE_ID'
+    );
+  }
+
+  // Parse region if provided as full URL or short code
+  let region = rawRegion.toLowerCase().trim();
+  for (const [code, url] of Object.entries(REGION_URLS)) {
+    if (region.includes(code) || region === url) {
+      region = code;
+      break;
+    }
+  }
+
+  return new TuyaClient({ accessKey, secretKey, deviceId, region });
 }

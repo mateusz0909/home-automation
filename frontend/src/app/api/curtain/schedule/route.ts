@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
-import { gcpFetch, gcpJsonResponse } from '@/lib/gcp';
+import { getScheduleState, updateConfig } from '@/lib/storage';
+import { syncQStashSchedule } from '@/lib/qstash';
+
+export const runtime = 'nodejs';
 
 export async function GET() {
   if (!(await isAuthenticated())) {
@@ -8,10 +11,10 @@ export async function GET() {
   }
 
   try {
-    const res = await gcpFetch('/schedule');
-    const { data, status } = await gcpJsonResponse(res);
-    return NextResponse.json(data, { status });
+    const scheduleState = await getScheduleState();
+    return NextResponse.json(scheduleState);
   } catch (error) {
+    console.error('Error in GET /api/curtain/schedule:', error);
     return NextResponse.json(
       { error: 'Failed to fetch schedule', details: String(error) },
       { status: 500 }
@@ -25,14 +28,30 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    const body = await req.json();
-    const res = await gcpFetch('/schedule', {
-      method: 'PUT',
-      body: JSON.stringify(body),
+    const { cronExpression, timezone } = await req.json();
+
+    if (!cronExpression || !timezone) {
+      return NextResponse.json(
+        { error: 'cronExpression and timezone are required' },
+        { status: 400 }
+      );
+    }
+
+    // Update Redis config and QStash schedule
+    const newConfig = await updateConfig({ cronExpression, timezone });
+    try {
+      await syncQStashSchedule(newConfig);
+    } catch (schedErr) {
+      console.warn('QStash schedule sync notice:', schedErr);
+    }
+
+    return NextResponse.json({
+      message: 'Schedule updated (Redis + QStash)',
+      cronExpression,
+      timezone,
     });
-    const { data, status } = await gcpJsonResponse(res);
-    return NextResponse.json(data, { status });
   } catch (error) {
+    console.error('Error in PUT /api/curtain/schedule:', error);
     return NextResponse.json(
       { error: 'Failed to update schedule', details: String(error) },
       { status: 500 }

@@ -17,11 +17,11 @@ export interface TuyaResponse<T = unknown> {
   code?: number;
 }
 
-/** Automation schedule configuration stored in Firestore */
+/** Automation schedule configuration stored in Redis */
 export interface AutomationConfig {
   /** Cron expression, e.g. "0 7 * * *" */
   cronExpression: string;
-  /** IANA timezone, e.g. "Europe/Prague" */
+  /** IANA timezone, e.g. "Europe/Warsaw" or "Europe/Prague" */
   timezone: string;
   /** Percentage steps to open gradually, e.g. [10, 20, 30, ..., 90] */
   steps: number[];
@@ -73,4 +73,40 @@ export interface WorkflowExecutionLogRequest {
   finalPosition: number | null;
   startedAt?: string;
   error?: string;
+}
+
+/** Real-time execution status stored in Redis under curtain:status */
+export interface AutomationStatus {
+  state: 'idle' | 'running' | 'cancelled';
+  currentStep?: number;
+  totalSteps?: number;
+  targetPercent?: number;
+  runId?: string;
+  startedAt?: string;
+  updatedAt?: string;
+  trigger?: 'scheduled' | 'manual';
+  error?: string;
+}
+
+/** Result of a single automation step */
+export interface StepExecutionResult {
+  success: boolean;
+  targetPercent: number;
+  startPosition: number | null;
+  finalPosition: number | null;
+  cancelled?: boolean;
+  error?: string;
+}
+
+/** Full automation sequence result */
+export interface AutomationResult {
+  success: boolean;
+  stepsCompleted: number;
+  totalSteps: number;
+  finalPosition: number | null;
+  error?: string;
+}
+
+export interface AutomationRunOptions {
+  maxTotalDurationSeconds?: number;
 }

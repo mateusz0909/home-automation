@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
-import { gcpFetch, gcpJsonResponse } from '@/lib/gcp';
+import { getConfig, updateConfig } from '@/lib/storage';
+import { syncQStashSchedule } from '@/lib/qstash';
+
+export const runtime = 'nodejs';
 
 export async function GET() {
   if (!(await isAuthenticated())) {
@@ -8,10 +11,10 @@ export async function GET() {
   }
 
   try {
-    const res = await gcpFetch('/config');
-    const { data, status } = await gcpJsonResponse(res);
-    return NextResponse.json(data, { status });
+    const config = await getConfig();
+    return NextResponse.json(config);
   } catch (error) {
+    console.error('Error in GET /api/curtain/config:', error);
     return NextResponse.json(
       { error: 'Failed to fetch config', details: String(error) },
       { status: 500 }
@@ -25,14 +28,25 @@ export async function PUT(req: NextRequest) {
   }
 
   try {
-    const body = await req.json();
-    const res = await gcpFetch('/config', {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    });
-    const { data, status } = await gcpJsonResponse(res);
-    return NextResponse.json(data, { status });
+    const updates = await req.json();
+    const newConfig = await updateConfig(updates);
+
+    // If enabled status or schedule changed, sync QStash schedule
+    if (
+      typeof updates.enabled === 'boolean' ||
+      updates.cronExpression ||
+      updates.timezone
+    ) {
+      try {
+        await syncQStashSchedule(newConfig);
+      } catch (scheduleErr) {
+        console.warn('Could not sync QStash schedule:', scheduleErr);
+      }
+    }
+
+    return NextResponse.json({ message: 'Config updated', config: newConfig });
   } catch (error) {
+    console.error('Error in PUT /api/curtain/config:', error);
     return NextResponse.json(
       { error: 'Failed to update config', details: String(error) },
       { status: 500 }

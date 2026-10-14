@@ -1,5 +1,5 @@
 import { TuyaClient } from './tuya-client';
-import { AutomationConfig } from './types';
+import { AutomationConfig, AutomationResult, AutomationRunOptions, StepExecutionResult } from './types';
 
 /**
  * Sleeps for the given number of seconds.
@@ -8,11 +8,11 @@ function sleep(seconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 }
 
-function clamp(value: number, min: number, max: number): number {
+export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function derivePollingSettings(stepIntervalSeconds: number): {
+export function derivePollingSettings(stepIntervalSeconds: number): {
   effectiveStepIntervalSeconds: number;
   pollIntervalSeconds: number;
   pollTimeoutSeconds: number;
@@ -29,7 +29,7 @@ function derivePollingSettings(stepIntervalSeconds: number): {
   };
 }
 
-function estimateMinimumRuntimeSeconds(
+export function estimateMinimumRuntimeSeconds(
   stepCount: number,
   stepIntervalSeconds: number,
   pollIntervalSeconds: number,
@@ -52,7 +52,7 @@ function estimateMinimumRuntimeSeconds(
  *
  * Returns true if the target was reached, false on timeout.
  */
-async function waitForPosition(
+export async function waitForPosition(
   client: TuyaClient,
   targetPercent: number,
   pollIntervalSeconds: number,
@@ -136,29 +136,9 @@ async function waitForPosition(
   return false;
 }
 
-export interface AutomationResult {
-  success: boolean;
-  stepsCompleted: number;
-  totalSteps: number;
-  finalPosition: number | null;
-  error?: string;
-}
-
-export interface AutomationRunOptions {
-  maxTotalDurationSeconds?: number;
-}
-
-export interface StepExecutionResult {
-  success: boolean;
-  targetPercent: number;
-  startPosition: number | null;
-  finalPosition: number | null;
-  error?: string;
-}
-
 /**
  * Executes one automation step (move curtain to target percent).
- * Useful for asynchronous orchestration tools like Cloud Workflows.
+ * Used within serverless workflows (e.g. Upstash Workflow or QStash step chaining).
  */
 export async function runSingleStep(
   client: TuyaClient,
@@ -244,20 +224,14 @@ export async function runSingleStep(
 }
 
 /**
- * Runs the gradual curtain opening sequence.
- *
- * This is a faithful port of the Python automation.py logic:
- * 1. Loop through percentage steps (e.g., 10, 20, ..., 90)
- * 2. For each step: check current position, send command, wait for motor
- * 3. Optionally send a final 'open' command to reach 100%
+ * Runs the complete gradual curtain opening sequence in-memory.
  */
 export async function runAutomation(
   client: TuyaClient,
   config: AutomationConfig,
   options: AutomationRunOptions = {}
 ): Promise<AutomationResult> {
-  const { steps, stepIntervalSeconds, sendFinalOpen } =
-    config;
+  const { steps, stepIntervalSeconds, sendFinalOpen } = config;
   const {
     effectiveStepIntervalSeconds,
     pollIntervalSeconds,
@@ -282,9 +256,7 @@ export async function runAutomation(
     pollIntervalSeconds,
     sendFinalOpen
   );
-  console.log(
-    `Estimated minimum runtime: ${estimatedMinimumRuntimeSeconds}s`
-  );
+  console.log(`Estimated minimum runtime: ${estimatedMinimumRuntimeSeconds}s`);
 
   if (
     maxTotalDurationSeconds !== undefined &&
@@ -306,7 +278,6 @@ export async function runAutomation(
     if (maxTotalDurationSeconds === undefined) {
       return false;
     }
-
     const elapsedSeconds = (Date.now() - startedAt) / 1000;
     return elapsedSeconds >= maxTotalDurationSeconds;
   };
@@ -330,9 +301,7 @@ export async function runAutomation(
     console.log(`Current curtain position: ${currentPercent}%`);
 
     if (currentPercent >= percent) {
-      console.log(
-        `Curtain is already at or beyond ${percent}%. Continuing...`
-      );
+      console.log(`Curtain is already at or beyond ${percent}%. Continuing...`);
       stepsCompleted++;
       continue;
     }
@@ -381,6 +350,7 @@ export async function runAutomation(
         return client.setDevicePercent(percent);
       }
     );
+
     if (!reached) {
       const pos = await client.getDeviceStatus();
       return {
@@ -438,17 +408,10 @@ export async function runAutomation(
 
       finalCheck = await client.getDeviceStatus();
       if (finalCheck !== null && finalCheck < 99) {
-        console.log(
-          `Still at ${finalCheck}%. Sending one more 'open' retry...`
-        );
+        console.log(`Still at ${finalCheck}%. Sending one more 'open' retry...`);
         const secondOpen = await client.sendDirectionalCommand('open');
         if (secondOpen) {
-          await waitForPosition(
-            client,
-            100,
-            pollIntervalSeconds,
-            pollTimeoutSeconds
-          );
+          await waitForPosition(client, 100, pollIntervalSeconds, pollTimeoutSeconds);
         }
       }
     }

@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Proxy API calls to the GCP Cloud Function
+  // Production serverless configuration
 };
 
 module.exports = nextConfig;
