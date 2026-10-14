@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Clock, Calendar, Sliders, CheckCircle2, AlertCircle, RotateCcw, Sunrise } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Config {
   cronExpression: string;
@@ -19,12 +20,17 @@ interface Config {
 const DURATION_PRESETS = [
   { label: '5s', value: 5 },
   { label: '10s', value: 10 },
-  { label: '15s', value: 15 },
+  { label: '15s (Default)', value: 15 },
   { label: '30s', value: 30 },
   { label: '1 min', value: 60 },
   { label: '2 min', value: 120 },
   { label: '5 min', value: 300 },
-  { label: '6 min', value: 360 },
+];
+
+const STEP_PRESETS = [
+  { label: 'Gentle (7 steps)', steps: [10, 20, 35, 50, 65, 80, 90] },
+  { label: 'Linear (9 steps)', steps: [10, 20, 30, 40, 50, 60, 70, 80, 90] },
+  { label: 'Brisk (4 steps)', steps: [25, 50, 75, 90] },
 ];
 
 function clampInterval(v: number): number {
@@ -59,37 +65,29 @@ const DAYS_OF_WEEK = [
 ];
 
 const TIMEZONES = [
+  'Europe/Warsaw',
   'Europe/Prague',
-  'Europe/London',
   'Europe/Berlin',
   'Europe/Paris',
+  'Europe/London',
   'Europe/Rome',
   'Europe/Madrid',
   'Europe/Amsterdam',
-  'Europe/Warsaw',
   'Europe/Zurich',
   'Europe/Vienna',
   'Europe/Stockholm',
   'Europe/Helsinki',
   'Europe/Athens',
-  'Europe/Bucharest',
-  'Europe/Istanbul',
   'US/Eastern',
   'US/Central',
-  'US/Mountain',
   'US/Pacific',
-  'Asia/Tokyo',
-  'Asia/Shanghai',
-  'Asia/Kolkata',
-  'Australia/Sydney',
   'UTC',
 ];
 
-/** Parse a cron expression "M H * * DOW" into time + selected days */
 function parseCron(cron: string): { hour: number; minute: number; days: number[] } {
   const parts = cron.trim().split(/\s+/);
-  const minute = parseInt(parts[0]) || 0;
-  const hour = parseInt(parts[1]) || 7;
+  const minute = parseInt(parts[0], 10) || 0;
+  const hour = parseInt(parts[1], 10) || 7;
   const dowPart = parts[4] || '*';
 
   let days: number[];
@@ -105,7 +103,7 @@ function parseCron(cron: string): { hour: number; minute: number; days: number[]
           for (let i = start; i <= end; i++) result.push(i);
           return result;
         }
-        return [parseInt(seg)];
+        return [parseInt(seg, 10)];
       })
       .filter((n) => !isNaN(n));
   }
@@ -113,7 +111,6 @@ function parseCron(cron: string): { hour: number; minute: number; days: number[]
   return { hour, minute, days };
 }
 
-/** Build a cron expression from time + selected days */
 function buildCron(hour: number, minute: number, days: number[]): string {
   const sorted = [...days].sort((a, b) => a - b);
   const dowPart =
@@ -124,8 +121,8 @@ function buildCron(hour: number, minute: number, days: number[]): string {
 export default function ConfigPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -133,13 +130,21 @@ export default function ConfigPage() {
   const [scheduleHour, setScheduleHour] = useState(7);
   const [scheduleMinute, setScheduleMinute] = useState(0);
   const [selectedDays, setSelectedDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
-  const [timezone, setTimezone] = useState('Europe/Prague');
+  const [timezone, setTimezone] = useState('Europe/Warsaw');
 
   // Config fields
   const [stepsStr, setStepsStr] = useState('');
   const [stepInterval, setStepInterval] = useState(15);
   const [sendFinalOpen, setSendFinalOpen] = useState(true);
   const [enabled, setEnabled] = useState(true);
+
+  // Auto-hide feedback after 4 seconds
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(''), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -152,19 +157,18 @@ export default function ConfigPage() {
       const data = await res.json();
       setConfig(data);
 
-      // Parse cron into friendly fields
       const parsed = parseCron(data.cronExpression || '0 7 * * *');
       setScheduleHour(parsed.hour);
       setScheduleMinute(parsed.minute);
       setSelectedDays(parsed.days);
-      setTimezone(data.timezone || 'Europe/Prague');
+      setTimezone(data.timezone || 'Europe/Warsaw');
 
       setStepsStr((data.steps || []).join(', '));
       setStepInterval(data.stepIntervalSeconds ?? data.stepDelaySeconds ?? 15);
       setSendFinalOpen(data.sendFinalOpen ?? true);
       setEnabled(data.enabled ?? true);
     } catch {
-      setError('Failed to load config');
+      setError('Failed to load configuration parameters');
     } finally {
       setLoading(false);
     }
@@ -196,14 +200,13 @@ export default function ConfigPage() {
     return false;
   };
 
-  /** Save schedule — updates both Firestore config AND Cloud Scheduler job */
   async function handleSaveSchedule() {
     setSavingSchedule(true);
     setError('');
     setSuccess('');
 
     if (selectedDays.length === 0) {
-      setError('Please select at least one day');
+      setError('Select at least one active day of the week');
       setSavingSchedule(false);
       return;
     }
@@ -218,21 +221,20 @@ export default function ConfigPage() {
       });
 
       if (res.ok) {
-        setSuccess('Schedule updated — takes effect immediately');
+        setSuccess('Schedule synced with QStash — effective immediately');
       } else {
         const data = await res.json();
         setError(data.error || 'Failed to update schedule');
       }
     } catch {
-      setError('Network error');
+      setError('Network communication failure');
     } finally {
       setSavingSchedule(false);
     }
   }
 
-  /** Save other config fields (steps, timing, toggles) */
   async function handleSaveConfig() {
-    setSaving(true);
+    setSavingConfig(true);
     setError('');
     setSuccess('');
 
@@ -253,78 +255,112 @@ export default function ConfigPage() {
       });
 
       if (res.ok) {
-        setSuccess('Configuration saved successfully');
+        setSuccess('Routine tuning parameters saved');
         await fetchConfig();
       } else {
         const data = await res.json();
-        setError(data.error || 'Failed to save config');
+        setError(data.error || 'Failed to save configuration');
       }
     } catch {
-      setError('Network error');
+      setError('Network communication failure');
     } finally {
-      setSaving(false);
+      setSavingConfig(false);
     }
   }
 
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="page-title">Configuration</h2>
-        </div>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="h-40 w-full animate-pulse rounded-md bg-muted" />
-          </CardContent>
-        </Card>
+        <h2 className="page-title">Schedule & Tuning</h2>
+        <div className="panel-chassis h-64 w-full animate-pulse bg-card/60" />
       </div>
     );
   }
 
   const timeDisplay = `${String(scheduleHour).padStart(2, '0')}:${String(scheduleMinute).padStart(2, '0')}`;
+  const parsedSteps = parseStepsInput(stepsStr);
+  const totalRoutineSeconds = parsedSteps.length * stepInterval;
+  const minutes = Math.floor(totalRoutineSeconds / 60);
+  const seconds = totalRoutineSeconds % 60;
+  const calculatedDuration = minutes > 0 ? `${minutes}m ${seconds > 0 ? `${seconds}s` : ''}` : `${seconds}s`;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="page-title">Configuration</h2>
-        <Button variant="outline" onClick={fetchConfig}>
-          Reset
+    <div className="space-y-6">
+      {/* Page Title & Reset */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="page-title">Schedule & Routine Tuning</h2>
+          <p className="text-xs font-mono text-muted-foreground pt-0.5">
+            Configure circadian morning opening choreography and QStash automation
+          </p>
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={fetchConfig}
+          className="h-8 rounded-lg border-border/80 bg-secondary/50 text-xs font-mono text-muted-foreground hover:text-foreground"
+        >
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          Reload
         </Button>
       </div>
 
       {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div className="flex items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
+
       {success && (
-        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-400">
-          {success}
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          <span>{success}</span>
         </div>
       )}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Automation Enabled</CardTitle>
-          <CardDescription>When disabled, scheduled triggers will be skipped.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Enable or disable the scheduler globally.</p>
-          <Switch checked={enabled} onCheckedChange={setEnabled} />
-        </CardContent>
-      </Card>
+      {/* Global Master Switch */}
+      <div className="panel-chassis flex items-center justify-between p-5">
+        <div>
+          <span className="text-sm font-semibold text-foreground">Global Automation Engine</span>
+          <p className="text-xs text-muted-foreground pt-0.5">
+            When disabled, all scheduled morning routines are temporarily suspended.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-mono text-muted-foreground">
+            {enabled ? 'Enabled' : 'Disabled'}
+          </span>
+          <Switch
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            className="data-[state=checked]:bg-primary"
+          />
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Schedule</CardTitle>
-          <CardDescription>Configure run time, timezone and active weekdays.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
+      {/* Schedule Configuration Card */}
+      <div className="panel-chassis p-5 sm:p-6 space-y-5">
+        <div className="flex items-center gap-2 pb-1">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-border/80 bg-secondary/80 text-foreground">
+            <Clock className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Wake-Up Time & Cadence</h3>
+            <p className="text-[11px] font-mono text-muted-foreground">
+              QStash cron triggers
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {/* Time Picker */}
           <div className="space-y-2">
-            <Label>Open curtains at</Label>
+            <Label className="text-xs font-medium text-foreground">Scheduled Morning Time</Label>
             <Input
               type="time"
-              className="w-full sm:w-[200px]"
+              className="h-11 font-mono text-lg tracking-wider border-border/80 bg-[#090b10] text-foreground focus-visible:ring-primary"
               value={timeDisplay}
               onChange={(e) => {
                 const [h, m] = e.target.value.split(':').map(Number);
@@ -334,42 +370,11 @@ export default function ConfigPage() {
             />
           </div>
 
+          {/* Timezone Selector */}
           <div className="space-y-2">
-            <Label>Repeat on</Label>
-            <div className="flex flex-wrap gap-2">
-              {(['everyday', 'weekdays', 'weekends'] as const).map((preset) => (
-                <Button
-                  key={preset}
-                  type="button"
-                  size="sm"
-                  variant={isPresetActive(preset) ? 'default' : 'outline'}
-                  onClick={() => selectPreset(preset)}
-                >
-                  {preset === 'everyday' ? 'Every day' : preset === 'weekdays' ? 'Weekdays' : 'Weekends'}
-                </Button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              {DAYS_OF_WEEK.map(({ label, value }) => (
-                <Button
-                  key={value}
-                  type="button"
-                  size="sm"
-                  variant={selectedDays.includes(value) ? 'default' : 'outline'}
-                  className="w-12"
-                  onClick={() => toggleDay(value)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Timezone</Label>
+            <Label className="text-xs font-medium text-foreground">Timezone (DST Handled)</Label>
             <select
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:max-w-xs"
+              className="flex h-11 w-full rounded-md border border-border/80 bg-[#090b10] px-3 py-2 text-xs font-mono text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
             >
@@ -380,145 +385,178 @@ export default function ConfigPage() {
               ))}
             </select>
           </div>
+        </div>
 
-          <div className="rounded-lg border border-border/80 bg-muted/35 p-3 text-sm text-muted-foreground">
-            <p>
-              <span className="font-medium text-foreground">Preview:</span>{' '}
-              {selectedDays.length === 7
-                ? 'Every day'
-                : selectedDays.length === 0
-                  ? 'No days selected'
-                  : DAYS_OF_WEEK.filter((d) => selectedDays.includes(d.value))
-                    .map((d) => d.label)
-                    .join(', ')}{' '}
-              at {timeDisplay} ({timezone})
-            </p>
-            <p className="mt-1 font-mono text-xs">cron: {buildCron(scheduleHour, scheduleMinute, selectedDays)}</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              onClick={handleSaveSchedule}
-              disabled={savingSchedule || selectedDays.length === 0}
-            >
-              {savingSchedule ? 'Updating...' : 'Update Schedule'}
-            </Button>
-            <span className="text-xs text-muted-foreground">Takes effect immediately</span>
-          </div>
-
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Opening Steps</CardTitle>
-          <CardDescription>Define gradual opening percentages and final command behavior.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Percentage steps (comma-separated)</Label>
-            <Input
-              value={stepsStr}
-              onChange={(e) => setStepsStr(e.target.value)}
-              placeholder="10, 20, 30, 40, 50, 60, 70, 80, 90"
-            />
-            <p className="text-xs text-muted-foreground">The curtain opens gradually through these positions.</p>
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/70 p-3">
-            <div>
-              <p className="text-sm font-medium">Send final "open" command</p>
-              <p className="text-xs text-muted-foreground">After the last step, send explicit open command to reach 100%.</p>
-            </div>
-            <Switch checked={sendFinalOpen} onCheckedChange={setSendFinalOpen} />
-          </div>
-
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Timing</CardTitle>
-          <CardDescription>
-            Set the interval between opening steps. Maximum is 6 minutes.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            <Label>Interval between steps</Label>
-
-            {/* MM : SS picker */}
-            <div className="flex items-end gap-2">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">min</p>
-                <Input
-                  type="number"
-                  min={0}
-                  max={6}
-                  value={Math.floor(stepInterval / 60)}
-                  onChange={(e) => {
-                    const mins = Math.min(6, Math.max(0, parseInt(e.target.value) || 0));
-                    const secs = mins === 6 ? 0 : stepInterval % 60;
-                    setStepInterval(clampInterval(mins * 60 + secs));
-                  }}
-                  className="w-20 text-center"
-                />
-              </div>
-              <span className="pb-2 text-lg font-semibold text-muted-foreground">:</span>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">sec</p>
-                <Input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={stepInterval % 60}
-                  onChange={(e) => {
-                    const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
-                    const mins = Math.floor(stepInterval / 60);
-                    setStepInterval(clampInterval(mins * 60 + secs));
-                  }}
-                  className="w-20 text-center"
-                  disabled={Math.floor(stepInterval / 60) === 6}
-                />
-              </div>
-              <span className="pb-2 text-sm text-muted-foreground">
-                = {formatDuration(stepInterval)}
-              </span>
-            </div>
-
-            {/* Quick presets */}
-            <div className="flex flex-wrap gap-2 pt-1">
-              {DURATION_PRESETS.map((p) => (
-                <Button
-                  key={p.value}
+        {/* Days of Week Selection */}
+        <div className="space-y-2.5 pt-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium text-foreground">Active Days</Label>
+            <div className="flex gap-1.5">
+              {(['everyday', 'weekdays', 'weekends'] as const).map((preset) => (
+                <button
+                  key={preset}
                   type="button"
-                  size="sm"
-                  variant={stepInterval === p.value ? 'default' : 'outline'}
-                  onClick={() => setStepInterval(p.value)}
+                  onClick={() => selectPreset(preset)}
+                  className={cn(
+                    'rounded-lg border px-2.5 py-1 text-[11px] font-mono transition-all',
+                    isPresetActive(preset)
+                      ? 'border-primary/50 bg-primary/20 text-primary font-medium'
+                      : 'border-border/60 bg-secondary/30 text-muted-foreground hover:bg-secondary'
+                  )}
                 >
-                  {p.label}
-                </Button>
+                  {preset === 'everyday' ? 'Every day' : preset === 'weekdays' ? 'Weekdays' : 'Weekends'}
+                </button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Allowed range: 5s - 6min.</p>
           </div>
 
-          <div className="rounded-lg border border-border/80 bg-muted/35 p-3 text-xs text-muted-foreground">
-            Internally calculated by backend:
-            <br />
-            Poll interval = max(2s, min(10s, round(interval/3)))
-            <br />
-            Poll timeout = max(30s, min(720s, round(interval×2)))
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+            {DAYS_OF_WEEK.map(({ label, value }) => {
+              const active = selectedDays.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggleDay(value)}
+                  className={cn(
+                    'flex h-10 items-center justify-center rounded-xl border text-xs font-mono transition-all',
+                    active
+                      ? 'border-primary bg-primary/15 text-primary font-semibold shadow-sm shadow-primary/10'
+                      : 'border-border/60 bg-secondary/30 text-muted-foreground hover:border-border hover:bg-secondary hover:text-foreground'
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button onClick={handleSaveConfig} disabled={saving}>
-          {saving ? 'Saving...' : 'Save Configuration'}
+        {/* Schedule Summary Banner */}
+        <div className="flex items-center justify-between rounded-xl border border-border/80 bg-[#090b10] p-3 text-xs font-mono text-muted-foreground">
+          <span>
+            Triggers at <span className="text-foreground font-semibold">{timeDisplay}</span> ({timezone})
+          </span>
+          <span className="text-[11px] text-primary/80">
+            cron: {buildCron(scheduleHour, scheduleMinute, selectedDays)}
+          </span>
+        </div>
+
+        <Button
+          onClick={handleSaveSchedule}
+          disabled={savingSchedule || selectedDays.length === 0}
+          className="h-10 rounded-xl bg-primary text-primary-foreground font-medium text-xs sm:text-sm hover:bg-primary/90"
+        >
+          {savingSchedule ? 'Syncing with QStash...' : 'Save & Sync Schedule'}
         </Button>
-        <Button variant="outline" onClick={fetchConfig}>
-          Reset
+      </div>
+
+      {/* Sunrise Routine Step Choreography */}
+      <div className="panel-chassis p-5 sm:p-6 space-y-5">
+        <div className="flex items-center justify-between pb-1">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-400">
+              <Sunrise className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Sunrise Curve Choreography</h3>
+              <p className="text-[11px] font-mono text-muted-foreground">
+                Gradual stepped opening percentages & intervals
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-full border border-border/80 bg-secondary/60 px-2.5 py-1 text-[11px] font-mono text-muted-foreground">
+            ~{calculatedDuration} total routine
+          </div>
+        </div>
+
+        {/* Step Presets */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium text-foreground">Step Presets</Label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {STEP_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => setStepsStr(preset.steps.join(', '))}
+                className="rounded-lg border border-border/70 bg-secondary/40 px-3 py-1.5 text-xs font-mono text-muted-foreground hover:border-border hover:bg-secondary hover:text-foreground transition-all"
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Steps input */}
+        <div className="space-y-2">
+          <Label className="text-xs font-medium text-foreground">
+            Custom Step Percentages (0 to 100)
+          </Label>
+          <Input
+            value={stepsStr}
+            onChange={(e) => setStepsStr(e.target.value)}
+            placeholder="10, 20, 35, 50, 65, 80, 90"
+            className="h-10 font-mono text-sm border-border/80 bg-[#090b10] text-foreground focus-visible:ring-primary"
+          />
+          <p className="text-[11px] font-mono text-muted-foreground">
+            Curtain moves sequentially through these target percentages.
+          </p>
+        </div>
+
+        {/* Interval between steps */}
+        <div className="space-y-2.5 pt-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium text-foreground">Interval Between Steps</Label>
+            <span className="font-mono text-xs font-semibold text-primary">
+              {formatDuration(stepInterval)}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {DURATION_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setStepInterval(p.value)}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-xs font-mono transition-all',
+                  stepInterval === p.value
+                    ? 'border-primary bg-primary/15 text-primary font-semibold'
+                    : 'border-border/60 bg-secondary/30 text-muted-foreground hover:bg-secondary hover:text-foreground'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Final Open Switch */}
+        <div className="flex items-center justify-between rounded-xl border border-border/80 bg-[#090b10] p-3.5">
+          <div>
+            <span className="text-xs font-medium text-foreground">
+              Send final 100% full-open impulse
+            </span>
+            <p className="text-[11px] font-mono text-muted-foreground pt-0.5">
+              Ensures motor latches into the full mechanical limit stop after the last step.
+            </p>
+          </div>
+          <Switch
+            checked={sendFinalOpen}
+            onCheckedChange={setSendFinalOpen}
+            className="data-[state=checked]:bg-primary"
+          />
+        </div>
+
+        <Button
+          onClick={handleSaveConfig}
+          disabled={savingConfig}
+          className="h-10 rounded-xl bg-primary text-primary-foreground font-medium text-xs sm:text-sm hover:bg-primary/90"
+        >
+          {savingConfig ? 'Saving parameters...' : 'Save Routine Tuning'}
         </Button>
       </div>
     </div>

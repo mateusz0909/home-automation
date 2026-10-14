@@ -4,24 +4,24 @@
 
 @layer base {
   :root {
-    --background: 220 40% 7%;
-    --foreground: 215 32% 92%;
-    --card: 221 37% 11%;
-    --card-foreground: 215 32% 92%;
-    --primary: 221 95% 67%;
-    --primary-foreground: 220 40% 9%;
-    --secondary: 220 30% 16%;
-    --secondary-foreground: 215 32% 92%;
-    --muted: 220 27% 15%;
-    --muted-foreground: 218 20% 67%;
-    --accent: 220 28% 17%;
-    --accent-foreground: 215 32% 92%;
-    --destructive: 352 84% 62%;
+    --background: 226 35% 5%;
+    --foreground: 214 32% 94%;
+    --card: 225 26% 9%;
+    --card-foreground: 214 32% 94%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 226 35% 6%;
+    --secondary: 224 20% 14%;
+    --secondary-foreground: 214 32% 92%;
+    --muted: 224 20% 12%;
+    --muted-foreground: 218 14% 62%;
+    --accent: 224 22% 16%;
+    --accent-foreground: 214 32% 96%;
+    --destructive: 0 74% 54%;
     --destructive-foreground: 210 40% 98%;
-    --border: 220 27% 22%;
-    --input: 220 27% 22%;
-    --ring: 221 95% 67%;
-    --radius: 0.8rem;
+    --border: 224 18% 18%;
+    --input: 224 18% 18%;
+    --ring: 38 92% 50%;
+    --radius: 0.85rem;
   }
 
   * {
@@ -29,23 +29,73 @@
   }
 
   body {
-    @apply min-h-screen bg-background text-foreground antialiased;
-    background-image:
-      radial-gradient(900px 500px at 10% -10%, rgba(95, 129, 255, 0.2), transparent),
-      radial-gradient(700px 420px at 100% 0%, rgba(47, 198, 130, 0.12), transparent);
+    @apply min-h-screen bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary;
+    background-color: #080a0f;
+    background-image: 
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245, 158, 11, 0.08), transparent 70%),
+      radial-gradient(circle at 50% 100%, rgba(15, 23, 42, 0.4), transparent 50%);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Custom subtle hardware scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
   }
 }
 
 @layer components {
   .page-shell {
-    @apply mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8;
+    @apply mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8;
   }
 
   .page-title {
-    @apply text-2xl font-semibold tracking-tight;
+    @apply text-xl sm:text-2xl font-semibold tracking-tight text-foreground;
   }
 
   .status-number {
-    @apply text-4xl font-bold leading-none sm:text-5xl;
+    @apply font-mono text-4xl font-light tracking-tight sm:text-5xl tabular-nums;
+  }
+
+  /* Hardware Chassis Panel */
+  .panel-chassis {
+    @apply rounded-2xl border border-border/80 bg-card/90 shadow-2xl backdrop-blur-sm transition-all;
+  }
+
+  /* Drapery Fabric Simulation */
+  .curtain-fabric-left {
+    background: linear-gradient(90deg, #181d2b 0%, #252d43 60%, #1e2436 100%);
+    box-shadow: inset -3px 0 8px rgba(0, 0, 0, 0.7), 4px 0 16px rgba(0, 0, 0, 0.5);
+  }
+
+  .curtain-fabric-right {
+    background: linear-gradient(270deg, #181d2b 0%, #252d43 60%, #1e2436 100%);
+    box-shadow: inset 3px 0 8px rgba(0, 0, 0, 0.7), -4px 0 16px rgba(0, 0, 0, 0.5);
+  }
+
+  .curtain-pleat-pattern {
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.04) 0px,
+      rgba(255, 255, 255, 0.01) 8px,
+      rgba(0, 0, 0, 0.4) 16px,
+      rgba(0, 0, 0, 0.6) 24px,
+      rgba(255, 255, 255, 0.04) 32px
+    );
+  }
+
+  /* Sun / Daylight aperture background */
+  .daylight-aperture {
+    background: radial-gradient(circle at 50% 40%, rgba(254, 243, 199, 0.25) 0%, rgba(245, 158, 11, 0.15) 35%, rgba(14, 165, 233, 0.08) 70%, transparent 100%);
   }
 }
