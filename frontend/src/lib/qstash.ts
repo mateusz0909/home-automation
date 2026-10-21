@@ -10,16 +10,16 @@ export const SCHEDULE_ID = 'curtain-open-schedule';
  * Returns the public app URL for webhooks and QStash callbacks.
  */
 export function getAppUrl(): string {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  const raw =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL;
+  if (!raw) {
+    return 'http://localhost:3000';
   }
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
-    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(/\/$/, '');
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`.replace(/\/$/, '');
-  }
-  return 'http://localhost:3000';
+  // QStash rejects destinations without a scheme
+  const withScheme = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+  return withScheme.replace(/\/$/, '');
 }
 
 /**
@@ -106,14 +106,8 @@ export async function syncQStashSchedule(config: AutomationConfig): Promise<void
     const destination = `${appUrl}/api/curtain/trigger`;
     const cron = formatQStashCron(config.cronExpression, config.timezone);
 
-    // Delete existing schedule to guarantee idempotent upsert
-    try {
-      await qstash.schedules.delete(SCHEDULE_ID);
-    } catch {
-      // Ignore if schedule didn't exist
-    }
-
     if (config.enabled) {
+      // Same scheduleId overwrites the existing schedule; a failed create keeps the old one
       await qstash.schedules.create({
         destination,
         cron,
@@ -125,6 +119,11 @@ export async function syncQStashSchedule(config: AutomationConfig): Promise<void
       });
       console.log(`QStash schedule configured: ${SCHEDULE_ID} -> ${destination} (${cron})`);
     } else {
+      try {
+        await qstash.schedules.delete(SCHEDULE_ID);
+      } catch {
+        // Ignore if schedule didn't exist
+      }
       console.log(`Automation disabled; QStash schedule ${SCHEDULE_ID} removed.`);
     }
 
